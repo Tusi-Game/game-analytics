@@ -78,7 +78,7 @@ Supporting stories (sessions, derived KPIs, SDKs, operator admin, panel) are ind
 **Acceptance Scenarios**:
 1. **Given** a purchase event with product, price, and context dimensions, **When** processed, **Then** it contributes to per-(product × dimension-combo) revenue/count rollups.
 2. **Given** configured dimensions [level_bucket, region, in_game_state, payer_tier], **When** I view monetization, **Then** I can see top packages broken down by each dimension.
-3. **Given** a purchase reported by the client SDK and one reported by the server SDK, **When** both exist, **Then** the **server-reported** purchase is the trusted **revenue** record; the client SDK's role is a **context-companion event keyed by `transaction_id`** (player_level, region, in_game_state, …) that enriches the monetization rollup but contributes zero money (resolved — research.md §D: "client is the messenger, not the money source of truth"; both are deduped by the store-issued `transaction_id`).
+3. **Given** a purchase reported by the client SDK and one reported by the server SDK, **When** both exist, **Then** the **server-reported** purchase is the trusted **revenue** record; the client SDK's role is a **context-companion event keyed by the SDK-minted `purchase_attempt_id`** (player_level, region, in_game_state, …) that joins to the server revenue row and enriches the monetization rollup but contributes zero money (resolved — research.md §D: "client is the messenger, not the money source of truth"; money still dedups durably by the store-issued `transaction_id`).
 
 ### User Story 5 — Cold-storage lifecycle for raw events (Priority: P3)
 
@@ -144,7 +144,7 @@ As the operator, raw events are appended to a per-game daily file, and a nightly
 - **FR-018**: The system MUST record purchase events with product/package id, category, normalized price, and configurable context dimensions.
 - **FR-019**: The system MUST roll up purchases by product × configured-dimension combinations to answer "top package by <dimension>".
 - **FR-020**: Monetization dimensions MUST be configurable per game and applied **forward only** on change.
-- **FR-021**: Server-reported purchases MUST be the trusted monetization **revenue** record. The client SDK MUST NOT contribute money; it MAY emit a **context-companion event keyed by `transaction_id`** carrying purchase-time player context, which enriches the rollup via a join on `transaction_id`. If the companion event never arrives, the server revenue row MUST still stand alone with reduced dimensions. Every purchase row MUST carry `transaction_id`, `original_transaction_id`, a `source` flag (`client`/`server`), a `verified` boolean, `environment` (`prod`/`sandbox`, sandbox excluded from revenue), and raw local amount + currency stored separately from any normalized value. (Purchase truth resolved — research.md §D.)
+- **FR-021**: Server-reported purchases MUST be the trusted monetization **revenue** record. The client SDK MUST NOT contribute money; it MAY emit a **context-companion event keyed by the SDK-minted `purchase_attempt_id`** carrying purchase-time player context, which enriches the rollup via a join on `purchase_attempt_id` (money still dedups durably by `transaction_id`). If the companion event never arrives, the server revenue row MUST still stand alone with reduced dimensions. Every purchase row MUST carry `transaction_id`, `original_transaction_id`, a `source` flag (`client`/`server`), a `verified` boolean, `environment` (`prod`/`sandbox`, sandbox excluded from revenue), and raw local amount + currency stored separately from any normalized value. (Purchase truth resolved — research.md §D.)
 
 **Funnels (design-only in v1)**
 - **FR-022**: The data model MUST accommodate a **single per-game funnel** (ordered steps) as a forward-compatible design; funnel ingestion, computation, and UI are **deferred** beyond v1 (design-only, confirmed from brainstorm — no v1 funnel work).
@@ -216,7 +216,7 @@ These were resolved during brainstorming and are **locked** for v1:
 Deep multi-source research (one independent pass per question, verified against industry practice + locked constraints). Full rationale, numbers, and sources in `research.md §3`.
 
 - **§B** Retention → **classic Nth-day**, explicitly labelled; per-user active-days bitmap; rolling disqualified by results-only storage (US3 / FR-015–017).
-- **§D** Purchase truth → **server-only for revenue**; client emits a **context-companion event keyed by `transaction_id`**; carry fields so reconcile-by-txn_id is a later upgrade (US4 / FR-021).
+- **§D** Purchase truth → **server-only for revenue**; client emits a **context-companion event keyed by the SDK-minted `purchase_attempt_id`** (money still dedups durably by `transaction_id`); carry fields so reconcile-by-txn_id is a later upgrade (US4 / FR-021).
 - **§E** Redis loss → **accept-loss, no replay**; **5-min idempotent absolute-upsert flush**; **AOF everysec + RDB**; **write-ahead raw-file ordering** (Edge Cases / FR-009/011/011a / SC-008).
 - **§F** Dedup → **`event_id` + 24 h Redis window** for events; **durable `transaction_id` UNIQUE** for purchases (Edge Cases / FR-008a).
 - **§G** Event-time → **client-time with skew-correction**, UTC, 48 h day-seal grace, quarantine beyond (Edge Cases / FR-008b).
@@ -226,15 +226,15 @@ Deep multi-source research (one independent pass per question, verified against 
 
 All 22 second-order questions in `research.md §6` are now **RESOLVED** — see `research.md §6` for the full ledger. Summary:
 
-- **§B** (retention): active = session, immature-cohort masking, "classic Day-N" labelling — all adopted in phase 03 / metrics.
-- **§D** (purchase truth): refunds gross-only v1, FX via operator `fx_table` (Q8), sandbox exclusion, identity↔store mapping via server SDK, missing-companion accept — all adopted in metrics/04.
+- **§B** (retention): active = session, immature-cohort masking, "classic Day-N" labelling — all adopted in [specs/005-retention/spec.md](../005-retention/spec.md).
+- **§D** (purchase truth): refunds gross-only v1, FX via operator `fx_table` (Q8), sandbox exclusion, identity↔store mapping via server SDK, missing-companion accept — all adopted in [specs/006-monetization/spec.md](../006-monetization/spec.md) (and its design.md).
 - **§E** (Redis loss): live-counter TTL end-of-UTC-day, dashboard seam (today=Redis / sealed=Postgres / "provisional" label), fsync-per-batch, per-class merge rules (hardening pass) — all adopted.
-- **§F** (dedup): server-receive-time window, indefinite `transaction_id` retention, server SDK stamps `event_id` (Q2), SET-with-TTL v1 (Bloom deferred) — all adopted in Foundation / metrics.
+- **§F** (dedup): server-receive-time window, indefinite `transaction_id` retention, server SDK stamps `event_id` (Q2), SET-with-TTL v1 (Bloom deferred) — all adopted in [foundation.md](foundation.md).
 - **§G** (bucketing): future-clamp, platform logical day (Foundation §4.7), SDK always stamps `client_sent_time` — all adopted.
 - **§H** (schema): type-drift flag, reserved-name routing, default-deny PII scrubber, 500-name cap (FR-008c) — all adopted.
-- **Cross-cutting**: §X-1 rebuild procedure specified (bridge 01.5), §X-2 session defined (phase 02).
+- **Cross-cutting**: §X-1 rebuild procedure specified (bridge 01.5), §X-2 session defined ([specs/003-sessions/spec.md](../003-sessions/spec.md)).
 
-**Residual defers from the hardening pass** (documented, not blocking `/plan`): full anon↔user *merge* (the edge is now captured — Foundation §4.6 — merge deferred); the automated raw-rebuild *tool* (procedure specified); Redis HA replica + Sentinel (optional lever; single-Redis availability SPOF is named in 00.5 §8); DST-aware timezones (single fixed-offset zone assumed). See `phases/README.md` §Hardening for the full findings ledger.
+**Residual defers from the hardening pass** (documented, not blocking `/plan`): full anon↔user *merge* (the edge is now captured — Foundation §4.6 — merge deferred); the automated raw-rebuild *tool* (procedure specified); Redis HA replica + Sentinel (optional lever; single-Redis availability SPOF is named in 00.5 §8); DST-aware timezones (single fixed-offset zone assumed). See `research.md` §7–§8 for the full findings ledger.
 
 ---
 
@@ -267,6 +267,6 @@ All 22 second-order questions in `research.md §6` are now **RESOLVED** — see 
 
 1. ~~Complete `research.md` to close the open `[NEEDS CLARIFICATION]` items (§B, §D–§H).~~ **Done — resolved 2026-07-17 (research.md §3).**
 2. ~~Review the second-order open questions (`research.md §6`); settle at least the session definition (§X-2).~~ **Done — all 22 items resolved 2026-07-17 (research.md §6 full ledger).**
-3. ~~Review the per-metric spec sheets under `metrics/`; ratify or decline the funnels scope promotion; reconcile the per-user/per-payer spine-budget ledger against SC-007.~~ **Done — funnels DECLINED (design-only v1, FR-022 stands); spine ledger reconciled (within SC-007 intent at 10M users; three tightening items applied: economy depth default→off, lifetime-spend field declared in 04 sheet, funnels pruning recorded as v2 deliverable).**
+3. ~~Review the per-metric spec sheets (now merged into each story's `specs/00X-*/spec.md`); ratify or decline the funnels scope promotion; reconcile the per-user/per-payer spine-budget ledger against SC-007.~~ **Done — funnels DECLINED (design-only v1, FR-022 stands); spine ledger reconciled (within SC-007 intent at 10M users; three tightening items applied: economy depth default→off, lifetime-spend field declared in the monetization spec, funnels pruning recorded as v2 deliverable).**
 4. ~~Establish the project constitution (`.specify/memory/constitution.md`).~~ **Done — six principles drafted: results-only storage, disposable raw data, config-driven, single-command deploy, server-trusted money, write-ahead raw-file durability.** (See Subagent C constitution seed in synthesis brief.)
 5. **Proceed to `/plan`** — technical design: schemas, Redis key layout, worker jobs, API contracts. All §3 decisions locked; all §6 defaults confirmed; each metric sheet's §4/§5 is the per-metric design input; the constitution is ready to drop into `.specify/memory/constitution.md`.

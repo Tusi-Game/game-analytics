@@ -26,7 +26,7 @@ This index is the manager's map over the task-list files. It gives: (1) the file
 
 ## 2. Cross-phase build order
 
-Derived from the `phases/README.md` dependency table + the ownership matrix (Foundation §5) + each agent's stated blockers. Phases within a stage are parallelizable; stages are gated.
+Derived from the ownership matrix (`foundation.md` §5) + this file's own §2 + each agent's stated blockers. Phases within a stage are parallelizable; stages are gated.
 
 ```
 Stage A — Substrate (build as ONE unit; see Ledger R1)
@@ -86,8 +86,8 @@ Every agent independently surfaced cross-cutting concerns. These are **not** per
 
 Per `spec.md` Next Steps, before `/plan`:
 1. ✅ Task lists authored for every phase (this pass).
-2. ⬜ **Constitution** established — see [`../../.specify/memory/constitution.md`](../../.specify/memory/constitution.md) (drafted alongside this pass).
-3. ⬜ **Settle R1–R3** (blocking ledger items) — a seam ruling, the `spec.md` FR-021 back-propagation, and the cap-posture ruling.
+2. ✅ **Constitution** established — see [`../../.specify/memory/constitution.md`](../../.specify/memory/constitution.md) (drafted; operator ratification pending).
+3. ✅ **Settle R1–R3** (blocking ledger items) — a seam ruling, the `spec.md` FR-021 back-propagation, and the cap-posture ruling (settled in plan.md §3).
 4. ⬜ Funnels scope (FR-022) — remains design-only/deferred; no task list authored (correct per README scope note).
 5. ⬜ Operator sign-off on this plan + ledger.
 

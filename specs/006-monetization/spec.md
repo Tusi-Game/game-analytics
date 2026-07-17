@@ -16,9 +16,9 @@
 
 **The question it answers.** *"Which package sold most to whom, when, and in what context?"* e.g. "players out of energy at level 12 in region X buy the Energy Refill pack." Segmentation is the differentiator over a plain revenue bar chart — it lets the operator see "players out of energy at level 12 in region X buy the Energy Refill pack."
 
-**Definition (server-truth + client-context join):** per game, over a UTC day, maintain a rollup keyed by **(product × dimension-combo)** producing **purchase count** and **normalized revenue**. Revenue comes **only** from server-verified purchase rows; the dimension values that segment it come from a **client context-companion event keyed by `transaction_id`**, joined onto the server row. "Top package by `<D>`" = for a fixed dimension `D`, rank products by their summed measure within each value of `D`.
+**Definition (server-truth + client-context join):** per game, over a UTC day, maintain a rollup keyed by **(product × dimension-combo)** producing **purchase count** and **normalized revenue**. Revenue comes **only** from server-verified purchase rows; the dimension values that segment it come from a **client context-companion event keyed by the SDK-minted `purchase_attempt_id`**, joined onto the server row (money still dedups durably by `transaction_id`). "Top package by `<D>`" = for a fixed dimension `D`, rank products by their summed measure within each value of `D`.
 
-- **Money truth = server row.** The server SDK emits the authoritative revenue row (real money, verified receipt). The client SDK emits a **zero-money companion keyed by the same store `transaction_id`**, carrying purchase-time player context. Joined on `transaction_id` for the segmented rollup.
+- **Money truth = server row.** The server SDK emits the authoritative revenue row (real money, verified receipt). The client SDK emits a **zero-money companion keyed by the SDK-minted `purchase_attempt_id`**, carrying purchase-time player context. Joined on `purchase_attempt_id` for the segmented rollup (money still dedups durably by `transaction_id`).
 - **Companion is enrichment, never a gate.** If it never arrives, the server row **stands alone with reduced dimensions** (server-derivable dims survive; client-only dims render `unknown`). Revenue is never blocked or delayed on context.
 - **Rejected variants:**
   - *Client-reported revenue* — rejected: client money is spoofable ("the client is the messenger, not the source of truth"). Client contributes **zero** money.
@@ -39,7 +39,7 @@
 
 **Eligibility (a purchase counts iff):** `source=server` AND `verified=true` AND `environment=prod` AND not already-seen `transaction_id`. `refunded=true` rows still count in **gross** v1 (flag carried for v2 net).
 
-**Dimension resolution:** join server row ← companion on `transaction_id`. Per active dimension: use the companion value if present; else the server-derivable value if the dimension is server-derivable (`payer_tier`, `install_cohort`); else `unknown`. **Exception — `days_since_install` is server-wins**: it is server-derivable from `first_seen` and the more trustworthy source, so the server value takes precedence over any companion value (the companion's `days_since_install` is used only when the server cannot derive it). `sessions_before_purchase` and `in_game_state` are **client-only** → `unknown` when the companion is missing.
+**Dimension resolution:** join server row ← companion on `purchase_attempt_id`. Per active dimension: use the companion value if present; else the server-derivable value if the dimension is server-derivable (`payer_tier`, `install_cohort`); else `unknown`. **Exception — `days_since_install` is server-wins**: it is server-derivable from `first_seen` and the more trustworthy source, so the server value takes precedence over any companion value (the companion's `days_since_install` is used only when the server cannot derive it). `sessions_before_purchase` and `in_game_state` are **client-only** → `unknown` when the companion is missing.
 
 **Top package by `<D>`:** for a chosen dimension `D` and reporting period, for each value `v` of `D`: `top_product(D=v) = argmax_product Σ measure` over cells matching `(product, D=v)`, marginalizing the other dimensions.
 
@@ -123,13 +123,13 @@ The `purchase` reserved typed kind. **Strictly validated (§H)**; a row missing 
 
 **Note:** raw `price_local` + `currency` are stored **separately from any normalized value** — the normalized figure is computed downstream from a config FX table, **never sent by the SDK**.
 
-### 3b. Client SDK — context-companion event (keyed by `transaction_id`, **zero money**)
+### 3b. Client SDK — context-companion event (keyed by `purchase_attempt_id`, **zero money**)
 
 Emitted by the client immediately after the store confirms a purchase. Carries **no money field** — it is flagged non-revenue and contributes zero to the revenue measure. It exists solely to supply purchase-time client context that the server cannot see.
 
 | Field | Meaning | Req? | Source of truth |
 |---|---|---|---|
-| `transaction_id` | **Join key** — same store id as the server row. | required | Store (client-side) |
+| `purchase_attempt_id` | **Join key** — SDK-minted id threaded into the store call, matched to the server row (the client often lacks the store `transaction_id` at purchase-context time). | required | Client SDK |
 | `level_bucket` (from `player_level`) | Player level at purchase, bucketed per config boundaries. | optional | Client |
 | `region` | Player region at purchase. | optional | Client |
 | `in_game_state` | Momentary state: `post_defeat`, `out_of_energy`, `pre_boss`, … | optional | Client |
@@ -147,7 +147,7 @@ Companion rows are **not** revenue rows: they never dedup money, never create a 
 - **Monetization rollup (result):** *per game × product × active-dimension-combo × UTC day, we must be able to produce* `purchase_count` and `normalized_revenue`. This is the FR-019 rollup; "top package by `<D>`" is a marginalize-and-rank read over it. Grain includes an explicit `unknown` value per dimension for reduced-dimension (missing-companion) purchases.
 - **Purchase idempotency spine (durable, minimal, money-only):** *per `transaction_id`, we must be able to answer "seen before?"* — carrying `original_transaction_id` and a minimal ref. This is **uniqueness keys, not an event log** (FR-010) — permitted alongside the user spine. Enables durable, never-windowed money dedup.
 - **Raw local + currency retained separately** from `normalized_revenue` so re-normalization under a corrected FX table (for **unsealed** days) is possible without re-ingest, and so the normalized figure is always re-derivable from (raw amount, currency, purchase-date FX). An unsealed day can re-normalize under a corrected FX table without re-ingest.
-- **`transaction_id`-keyed context resolution:** *given a server revenue row, we must be able to produce its dimension-combo* by joining the client companion on `transaction_id`, falling back to server-derivable dims, then `unknown`. The companion holds no durable money and need not persist as an event — only its resolved dimension contribution to the rollup cell must be derivable.
+- **`purchase_attempt_id`-keyed context resolution:** *given a server revenue row, we must be able to produce its dimension-combo* by joining the client companion on `purchase_attempt_id`, falling back to server-derivable dims, then `unknown`. The companion holds no durable money and need not persist as an event — only its resolved dimension contribution to the rollup cell must be derivable.
 - **Per-payer spine extension (minimal, payer-bounded):** `lifetime_spend_normalized` — one monotonic numeric per payer (write-once, never decremented), keyed per `(game_id, user_id)`. Payer-tier classification (first/repeat/whale) reads this value against operator-configured dollar thresholds at query time; the spine stores only the spend, never the tier. Row-existence is the payer/non-payer boundary — non-payers cost zero. Rebuildable from `PURCHASE_IDEMPOTENCY` + dated FX. Ratified 2026-07-17 (Q3); recorded in the spine-budget ledger (see [../001-analytics-platform/spec.md](../001-analytics-platform/spec.md) — SC-007 ledger). **`sessions_before_purchase` is NOT derived server-side** — it arrives pre-computed on the companion (sessions decision), so no per-user session history is kept. This keeps the money path results-only. `first_seen` (from [005-retention](../005-retention/spec.md)) supports server-side `days_since_install` / `install_cohort`.
 - **Computable WITHOUT raw re-scan?** **Yes.** Every measure is an incremental upsert into the rollup at process-time from (server row + joined companion + FX config + idempotency check). No historical raw scan is needed for any live figure. The **only** operation that would need raw is a *retroactive* dimension/bucket re-slice — which is exactly why dimension changes are **forward-only** (FR-020) and the raw file is a manual backfill floor, not a live dependency.
 
@@ -165,7 +165,7 @@ Companion rows are **not** revenue rows: they never dedup money, never create a 
 
 **Redis (transient, hot).**
 - **Today's rollup accumulators** — per game × product × dimension-combo × today: running count + normalized revenue. Hot; lost on crash (accepted; money truth is not here).
-- **Companion staging** — client companions held briefly awaiting a possibly-late server row (and vice-versa), within the 48 h grace, for the `transaction_id` join.
+- **Companion staging** — client companions held briefly awaiting a possibly-late server row (and vice-versa), within the 48 h grace, for the `purchase_attempt_id` join.
 - (Money dedup is **not** a Redis window — see below.)
 
 **Database (durable, results-only).**

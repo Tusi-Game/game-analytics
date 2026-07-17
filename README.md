@@ -4,30 +4,30 @@ A lightweight, **self-hostable, multi-game** analytics platform — built becaus
 
 ## Status
 
-Spec-driven (using [GitHub Spec Kit](https://github.com/github/spec-kit) conventions). Currently in the **specify** phase.
+Spec-driven (using [GitHub Spec Kit](https://github.com/github/spec-kit) conventions). Specify, Research, and Tasks are complete; currently in the **plan** phase (see [`specs/001-analytics-platform/plan.md`](specs/001-analytics-platform/plan.md)).
 
 ## Spec Kit workflow
 
 | Phase | Command | Artifact | State |
 |---|---|---|---|
-| Constitution | `/speckit.constitution` | `.specify/memory/constitution.md` | todo |
-| Specify | `/speckit.specify` | `specs/001-analytics-platform/spec.md` | ✅ draft |
-| Research | (supports specify) | `specs/001-analytics-platform/research.md` | ✅ survey + domain done; open clarifications pending |
-| Plan | `/speckit.plan` | `specs/001-analytics-platform/plan.md` | todo |
-| Tasks | `/speckit.tasks` | `specs/001-analytics-platform/tasks.md` | todo |
+| Constitution | `/speckit.constitution` | `.specify/memory/constitution.md` | ✅ draft |
+| Specify | `/speckit.specify` | `specs/001-analytics-platform/spec.md` + per-story `specs/00X-*/spec.md` | ✅ |
+| Research | (supports specify) | `specs/001-analytics-platform/research.md` | ✅ |
+| Plan | `/speckit.plan` | per-story `specs/00X-*/design.md` (no umbrella `plan.md` yet) | in progress / next |
+| Tasks | `/speckit.tasks` | per-story `specs/00X-*/tasks.md` | ✅ |
 | Implement | `/speckit.implement` | source code | todo |
 
 ## Read next
 
 1. [`specs/001-analytics-platform/spec.md`](specs/001-analytics-platform/spec.md) — the requirement: user stories, functional requirements, success criteria, decided clarifications.
 2. [`specs/001-analytics-platform/research.md`](specs/001-analytics-platform/research.md) — adopt-vs-build survey, game-analytics domain knowledge, and the 6 open research tasks to close before planning.
-3. [`specs/001-analytics-platform/phases/`](specs/001-analytics-platform/phases/README.md) — **one design spec per story** (ingest, sessions, economy, retention, monetization, derived KPIs, cold storage), each with the same 6-part structure: story understanding, calculation, data needed, data stored long-term, Redis-vs-database data-structure thinking, and configurations. Excludes infra/technical-difficulty concerns by design.
-4. [`specs/001-analytics-platform/metrics/`](specs/001-analytics-platform/metrics/README.md) — deeper per-metric reference sheets behind the phase specs.
+3. **Per-story specs** — [`specs/002-foundation-ingest/`](specs/002-foundation-ingest/) … [`specs/012-panel/`](specs/012-panel/) — **one story per directory** (foundation/ingest, sessions, economy, retention, monetization, derived KPIs, cold storage, client/server SDKs, operator admin, panel), each carrying `spec.md` + `design.md` + `tasks.md`. Shared cross-story substrate lives at the platform level in [`specs/001-analytics-platform/foundation.md`](specs/001-analytics-platform/foundation.md).
+4. **Per-metric detail** now lives inside each story's `spec.md` / `design.md` (no separate `metrics/` directory). The durable per-metric cost/spine budget is tracked in [`specs/001-analytics-platform/spine-budget-ledger.md`](specs/001-analytics-platform/spine-budget-ledger.md).
 
 ## Decided so far (v1)
 
 - **Metrics**: raw events, sink/source economy, retention (D1/D7/D30), segmented monetization. Funnels are design-only (deferred).
-- **Stack**: NestJS + TypeScript (ingest API, workers, dashboard API); Next.js dashboard; Docker Compose.
+- **Stack**: NestJS + TypeScript (ingest API, workers, panel); server-rendered NestJS + Nunjucks panel (single process — no separate front-end); Docker Compose.
 - **Storage**: Redis = transient queue + hot counters (≤1 day). Postgres = user spine + result rollups only. Daily gzip raw files → S3-compatible → deleted local.
 - **Identity**: game-provided stable `user_id` + SDK anon id for pre-login.
 - **SDKs**: browser/JS client SDK + Node/NestJS server SDK.

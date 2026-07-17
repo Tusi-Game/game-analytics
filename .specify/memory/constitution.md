@@ -7,7 +7,7 @@ These are the non-negotiable invariants distilled from the locked design (Q1–Q
 ---
 
 ## P1 — Results-only storage
-Postgres holds **only processed results + the minimal per-user spine** — never raw event logs (FR-010, SC-007). The spine is ONE family, three tiers (Foundation §1.3); any new per-user durable structure requires a ledger amendment in `metrics/README.md` first, not a new table. `PURCHASE_IDEMPOTENCY` is a uniqueness-key table, permitted alongside — not an event log. **Test:** could this store re-derive every metric without re-scanning raw events? If not, it violates P1.
+Postgres holds **only processed results + the minimal per-user spine** — never raw event logs (FR-010, SC-007). The spine is ONE family, three tiers (Foundation §1.3); any new per-user durable structure requires a ledger amendment in `spine-budget-ledger.md` first, not a new table. `PURCHASE_IDEMPOTENCY` is a uniqueness-key table, permitted alongside — not an event log. **Test:** could this store re-derive every metric without re-scanning raw events? If not, it violates P1.
 
 ## P2 — Disposable raw data
 Raw events live only transiently (wire → BullMQ → raw day-file → S3 → deleted local). Losing a day's raw file or the Redis cache is **acceptable by design**; the raw file is the manual-rebuild floor, not a database (FR-023/024, US5). Correlate with P7: what must survive is the *durable Postgres result*, never the raw stream.
@@ -48,4 +48,4 @@ PII default-deny (a non-empty `pii_prop_denylist` + value scrubber before raw-ap
 ---
 
 ## Amendment rule
-A principle changes only by an explicit decision recorded here with rationale + date, mirrored into the affected design specs. The design layer's Q1–Q10 records and the adversarial-hardening ledger (`research.md` §7–§8, `phases/README.md`) are the precedent library for how such decisions are made and sourced.
+A principle changes only by an explicit decision recorded here with rationale + date, mirrored into the affected design specs. The design layer's Q1–Q10 records and the adversarial-hardening ledger (`research.md` §7–§8) are the precedent library for how such decisions are made and sourced.
