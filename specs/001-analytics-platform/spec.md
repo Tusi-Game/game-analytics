@@ -209,7 +209,7 @@ These were resolved during brainstorming and are **locked** for v1:
 - **Q: Which metrics are non-negotiable for v1?** → Raw event tracking, sink/source economy, retention D1/D7/D30, and segmented monetization. **Funnels are deferred** (design-only per FR-022).
 - **Q: How do events reach the system?** → Batched HTTP → queue (BullMQ/Redis) → workers → Redis hot counters + daily file, with periodic flush to Postgres.
 - **Q: Platform stack?** → NestJS + TypeScript across ingest API, workers, and dashboard API. One language, matches the owner's games.
-- **Q: Dashboard + deploy?** → Next.js dashboard; whole stack via Docker Compose. S3 target is any S3-compatible provider (MinIO / Arvan / etc.) so it works under network restrictions.
+- **Q: Dashboard + deploy?** → Server-rendered panel inside NestJS (Nunjucks + Tailwind CSS + HTMX + Alpine.js + Chart.js); whole stack via Docker Compose. S3 target is any S3-compatible provider (MinIO / Arvan / etc.) so it works under network restrictions. No separate front-end app — the panel is served by the same NestJS process that runs ingest, workers, and the dashboard API.
 - **Q: Where do durable facts live?** → Postgres stores **only processed results + a minimal per-user spine**, never raw logs. Redis is transient (≤1 day). Raw events live only in the disposable daily file (→ S3 → deleted local).
 - **Q: Monetization segmentation model?** → **Configurable dimensions, rebuild-forward**: dimension changes apply from that day onward; historical rollups keep old dimensions. Raw files remain a theoretical backfill escape hatch (not a v1 feature).
 - **Q: Cold-storage lifecycle?** → Append per-game daily file → nightly upload to S3-compatible storage → delete local; fully configurable.

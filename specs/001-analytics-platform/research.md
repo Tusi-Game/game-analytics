@@ -161,7 +161,7 @@ Each closes a `[NEEDS CLARIFICATION]` marker in `spec.md`. Each was pressure-tes
 
 ## 4. Reference Architecture Decisions (from brainstorm — context for `/plan`)
 
-- **Modular monolith**: one NestJS codebase with internal modules (ingest, workers, metrics, dashboard-api), structured so ingest can be extracted into its own service later without a rewrite. Rejected: separate services now (premature), event-sourced Postgres (the heavy model being avoided).
+- **Modular monolith**: one NestJS codebase with internal modules (ingest, workers, metrics, panel). The panel is a server-rendered dashboard (Nunjucks + Tailwind + HTMX + Alpine.js + Chart.js) served from the same NestJS process — no separate front-end app. Structured so ingest can be extracted into its own service later without a rewrite. Rejected: separate services now (premature), event-sourced Postgres (the heavy model being avoided).
 - **Storage split**: Redis = transient queue + hot counters (≤1 day, disposable); Postgres = user spine + result/rollup tables only; daily gzip raw files = cold backup → S3 → deleted local.
 - **S3-compatible target** (MinIO / Arvan / any) so it works under network restrictions and phones home to nothing blocked.
 - **Config-driven**: batch interval, cold-storage toggles, monetization dimensions (rebuild-forward), retention day targets, level-bucket boundaries, flush cadence — all config, no code changes to shift strategy.

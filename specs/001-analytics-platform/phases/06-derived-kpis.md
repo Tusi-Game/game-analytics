@@ -218,7 +218,7 @@ FirstConv(P)   = |{first_purchase_day ∈ P}| ÷ configured denominator
 
 ### API / contract surface
 
-**No new SDK event, no new envelope field, no reserved kind — the ingest contract is untouched by this story.** Its entire surface is the dashboard read-model (NestJS dashboard API → Next.js); live-vs-historical follows Foundation §3.3 uniformly (sealed days from Postgres, open days live from the owners' Redis keys with last-flush fallback, today marked provisional).
+**No new SDK event, no new envelope field, no reserved kind — the ingest contract is untouched by this story.** Its entire surface is the dashboard read-model (NestJS dashboard API → NestJS Panel); live-vs-historical follows Foundation §3.3 uniformly (sealed days from Postgres, open days live from the owners' Redis keys with last-flush fallback, today marked provisional).
 
 | KPI | Reads (stored structures) | Window | Masking / flags |
 |---|---|---|---|

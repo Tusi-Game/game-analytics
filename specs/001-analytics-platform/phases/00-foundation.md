@@ -264,7 +264,7 @@ flowchart LR
     NJ -->|"upload → delete local"| S3[("S3-compatible cold storage")]
     PG --> DASH["dashboard API (NestJS)"]
     R --> DASH
-    DASH --> NEXT["Next.js dashboard"]
+    DASH --> PANEL["NestJS Panel (Nunjucks + Tailwind + HTMX + Alpine.js + Chart.js)"]
 ```
 
 ### 3.1 Canonical worker op-ordering (normative)

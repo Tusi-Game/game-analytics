@@ -1,7 +1,7 @@
 # Phase 10 — Operator / Admin Surface
 
 **Feature**: 001-analytics-platform · **Layer**: story design (operational control plane) · **Status**: Draft (2026-07-17)
-**Grounding**: Foundation §1.2 (`GAME` registry, `GAME.config`), §4.5 (credential classes — F-3 resolved, 2026-07-17), §5 (ownership; 01 owns the registry), §8 conventions; every phase 01–07 `§6 Configurations`; [`00.5-ops-envelope.md`](00.5-ops-envelope.md) (rate-limit + erasure knobs); [`research.md` §7](../research.md) Q2 (key classes), Q7 (erasure). Consumed by: the dashboard (Next.js) admin area and the dashboard API (NestJS).
+**Grounding**: Foundation §1.2 (`GAME` registry, `GAME.config`), §4.5 (credential classes — F-3 resolved, 2026-07-17), §5 (ownership; 01 owns the registry), §8 conventions; every phase 01–07 `§6 Configurations`; [`00.5-ops-envelope.md`](00.5-ops-envelope.md) (rate-limit + erasure knobs); [`research.md` §7](../research.md) Q2 (key classes), Q7 (erasure). Consumed by: the NestJS Panel (see Phase 11) and the dashboard API (NestJS).
 **Altitude**: logical model + control-plane behavior — entities, the config-effective-time rule, the admin surface inventory. **No auth-library choice, no UI code, no DDL.**
 
 ---
@@ -129,7 +129,7 @@ Out of v1 (flagged, precedented): per-environment (sandbox/live) key pairs, per-
 
 ### Account security (hardening — 2026-07-17)
 
-One operator account gates read of every game's data **and** write of every game's config + credentials **and** (via config) the infra secrets. Session-timeout alone is far below baseline for that privilege, so v1 adds: **login rate-limit + lockout** (`operator_login_max_attempts` / `operator_lockout_min`); **optional TOTP MFA** (`operator_mfa_required` — self-hostable, no external dependency, works under sanctions); **failed-login auditing** (a distinct audit stream from `CONFIG_AUDIT`); and an **enforced `viewer`/`admin` split** (the roles existed in the ER but enforcement was unspecified — a `viewer` session can read results but cannot write config or touch credentials). The admin dashboard is served behind the §9 reverse proxy and may be IP-allowlisted for the solo operator.
+One operator account gates read of every game's data **and** write of every game's config + credentials **and** (via config) the infra secrets. Session-timeout alone is far below baseline for that privilege, so v1 adds: **login rate-limit + lockout** (`operator_login_max_attempts` / `operator_lockout_min`); **optional TOTP MFA** (`operator_mfa_required` — self-hostable, no external dependency, works under sanctions); **failed-login auditing** (a distinct audit stream from `CONFIG_AUDIT`); and an **enforced `viewer`/`admin` split** (the roles existed in the ER but enforcement was unspecified — a `viewer` session can read results but cannot write config or touch credentials). The admin panel is served behind the reverse proxy and may be IP-allowlisted for the solo operator.
 
 ### Infra-secret storage + rotation (hardening — 2026-07-17)
 
