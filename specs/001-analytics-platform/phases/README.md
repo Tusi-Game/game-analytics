@@ -39,6 +39,10 @@ Plus one operational envelope spec sitting beside the foundation: [`00.5-ops-env
 
 **Reading order:** 01 (foundation) → 02 (sessions — the activeness anchor everything else leans on) → 03 / 04 / 05 (the core metrics) → 06 (derived from all of the above) → 07 (operational lifecycle, read anytime after 01) → 10 (operator admin) → **11 (panel design)**. For the design layer: `00-foundation.md` first, then each phase's `## Design`, then the bridges, then `ER-full.md`.
 
+## The implementation-task layer (task-list-complete, 2026-07-17)
+
+Below the design specs sits a **per-phase implementation task list** (`NN-tasks.md`) — the *how-to-build* layer the design specs deliberately excluded (technical sequencing, DDL sketches, worker task breakdown, deploy). Each is a read-only projection of its locked design into atomic, cited, checkbox tasks. **Start here:** [`PLAN-INDEX.md`](PLAN-INDEX.md) — the build-order map, the file inventory (~560 tasks across 9 files), and the **consolidated reconciliation ledger** (R1–R13) of cross-cutting flags to settle once at `/plan`. The project **constitution** (P1–P13) lives at [`../../.specify/memory/constitution.md`](../../.specify/memory/constitution.md). Files: `00-tasks` · `01-tasks` · `02-04-tasks` · `03-tasks` · `05-06-tasks` · `07-tasks` · `08-09-tasks` · `10-tasks` · `11-tasks`.
+
 ## The design layer (design-complete, 2026-07-17)
 
 Each phase now carries a **`## Design` section** appended below its §1–6 story content — additions only, on one shared base, at logical-model altitude (entities/keys/cardinality, Redis patterns/types/TTLs, worker op-ordering additions, contract shapes — no DDL, no code). The layer's artifacts:
