@@ -5,6 +5,8 @@
 **Status**: Draft — **all six `[NEEDS CLARIFICATION]` resolved via research (2026-07-17)**; second-order open questions tracked in `research.md §6`. Pending stakeholder review, then `/plan`.
 **Input**: Owner wants a lightweight, self-hostable analytics platform for their own Phaser.js / React games (with NestJS backends), because GameAnalytics and Google Analytics are unusable under sanctions / network restrictions. Must serve **multiple games** from one install, lean heavily on Redis + a queue for processing, store only **processed results** (not raw logs) in Postgres, and keep disposable daily raw-event files as cold backup (uploaded to S3, then deleted locally).
 
+**Per-metric detail**: Each metric now has a dedicated research-phase spec sheet — SDK data captured → admin configuration → calculation (formula + worked example) + data-shape requirements — under [`metrics/`](metrics/README.md). Sheets cover raw events/catalog, economy, retention, monetization, sessions, funnels, and derived KPIs. **Note**: the funnels sheet promotes funnels from design-only (FR-022) to a computed metric and flags this as an **open scope decision to ratify** (see `metrics/README.md`).
+
 ---
 
 ## Why This Is a Custom Build (Not Adopt) — Research Conclusion
@@ -264,5 +266,6 @@ Resolving §B–§H exposed second-order questions, each with a default recommen
 
 1. ~~Complete `research.md` to close the open `[NEEDS CLARIFICATION]` items (§B, §D–§H).~~ **Done — resolved 2026-07-17 (research.md §3).**
 2. Review the second-order open questions (`research.md §6`); settle at least the **session definition (§X-2)** before `/plan`, since retention and monetization both depend on it.
-3. Establish the project **constitution** (`.specify/memory/constitution.md`) — principles: results-only storage, disposable raw data, config-driven, single-command deploy, server-trusted money, **write-ahead raw-file durability**.
-4. Proceed to `/plan` (technical design: schemas, Redis key layout, worker jobs, API contracts) with §3 decisions locked and §6 defaults in hand.
+3. Review the per-metric spec sheets under [`metrics/`](metrics/README.md) and **ratify (or decline) the funnels scope promotion** (`metrics/README.md` open-scope-decision + funnels §7 OQ-1) — funnels are the only sheet contradicting a current spec lock (FR-022). Also reconcile the per-user/per-payer **spine-budget ledger** (`metrics/README.md`) against SC-007.
+4. Establish the project **constitution** (`.specify/memory/constitution.md`) — principles: results-only storage, disposable raw data, config-driven, single-command deploy, server-trusted money, **write-ahead raw-file durability**.
+5. Proceed to `/plan` (technical design: schemas, Redis key layout, worker jobs, API contracts) with §3 decisions locked, §6 defaults in hand, and each metric sheet's §4/§5 as the per-metric design input.
