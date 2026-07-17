@@ -1,0 +1,33 @@
+{
+  "schema": "specify-runner-progress/v1",
+  "project": "001-analytics-platform",
+  "branch": "001-split-into-per-story-specs",
+  "created": "2026-07-18",
+  "note": "Canonical resumable progress ledger. Order derived from specs/001-analytics-platform/PLAN-INDEX.md build stages. 000-scaffold is the true first buildable unit (creates the NestJS monorepo + docker-compose that all other specs build inside). The engine-domain runner template supplied at kickoff does not match this repo; this ledger reflects the real analytics-platform specs.",
+  "stages": {
+    "PreA": ["000-nestjs-scaffold"],
+    "A_substrate": ["002-foundation-ingest"],
+    "B_registry": ["011-operator-admin"],
+    "C_metrics": ["003-sessions", "004-economy", "006-monetization"],
+    "D_edges": ["008-cold-storage", "009-client-sdk"],
+    "E_presentation": ["012-panel"]
+  },
+  "pointer_specs": {
+    "005-retention": "combined into 003-sessions",
+    "007-derived-kpis": "combined into 006-monetization",
+    "010-server-sdk": "combined into 009-client-sdk"
+  },
+  "specs": [
+    {"id": "000-nestjs-scaffold", "stage": "PreA", "depends_on": [], "status": "in_progress", "commit": null, "validation_passes": 0, "notes": "Started 2026-07-18. Building scaffold: NestJS monorepo + docker-compose + shared contracts."},
+    {"id": "002-foundation-ingest", "stage": "A_substrate", "depends_on": ["000-nestjs-scaffold"], "status": "pending", "commit": null, "validation_passes": 0, "notes": "Build 00-kernel + 01 front-door as ONE unit (Ledger R1). Freeze routed-record contract before Stage C."},
+    {"id": "011-operator-admin", "stage": "B_registry", "depends_on": ["002-foundation-ingest"], "status": "pending", "commit": null, "validation_passes": 0, "notes": "Real auth/registry. Minimal GAME/credential seed already in 002 T-01.6."},
+    {"id": "003-sessions", "stage": "C_metrics", "depends_on": ["002-foundation-ingest"], "status": "pending", "commit": null, "validation_passes": 0, "notes": "Combined with 005-retention (56 tasks). Writes USER_SPINE per bridge 02.5."},
+    {"id": "004-economy", "stage": "C_metrics", "depends_on": ["002-foundation-ingest"], "status": "pending", "commit": null, "validation_passes": 0, "notes": ""},
+    {"id": "006-monetization", "stage": "C_metrics", "depends_on": ["002-foundation-ingest"], "status": "pending", "commit": null, "validation_passes": 0, "notes": "Combined with 007-derived-kpis (85 tasks). purchase_attempt_id join key (Ledger R2)."},
+    {"id": "008-cold-storage", "stage": "D_edges", "depends_on": ["002-foundation-ingest"], "status": "pending", "commit": null, "validation_passes": 0, "notes": ""},
+    {"id": "009-client-sdk", "stage": "D_edges", "depends_on": ["002-foundation-ingest"], "status": "pending", "commit": null, "validation_passes": 0, "notes": "Combined with 010-server-sdk (59 tasks). Shares golden fixtures with 002 (Ledger R4). npm org scope unresolved (R13) — flag before publish."},
+    {"id": "012-panel", "stage": "E_presentation", "depends_on": ["011-operator-admin", "003-sessions", "004-economy", "006-monetization", "008-cold-storage"], "status": "pending", "commit": null, "validation_passes": 0, "notes": ""}
+  ],
+  "skipped": [],
+  "blockers": []
+}

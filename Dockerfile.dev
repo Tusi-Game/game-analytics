@@ -1,0 +1,14 @@
+# Dev image: single stage, source volume-mounted, watch mode.
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=development
+
+# Install dependencies. Source is volume-mounted at runtime (see docker-compose),
+# so only manifests are copied into the image layer for cache-friendly installs.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+EXPOSE 3000
+
+# nest start --watch — hot reload against the mounted ./src volume.
+CMD ["npm", "run", "dev"]
