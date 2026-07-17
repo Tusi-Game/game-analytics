@@ -25,7 +25,7 @@
 
 ## 2. How it is calculated
 
-**Bucketing.** UTC day of the server row's skew-corrected event-time. Segment grain = **(product × active-dimension-combo)** per UTC day.
+**Bucketing.** The platform **logical day** (Foundation §4.7 — `utc_day(corrected + reporting_offset)`, single platform timezone; every "UTC day" below reads as the logical day) of the server row's skew-corrected event-time. Segment grain = **(product × active-dimension-combo)** per logical day.
 
 **Measures per cell (per game / product / dimension-combo / UTC day):**
 - `purchase_count` = distinct **server-verified prod** purchases (deduped by `transaction_id`).
@@ -182,12 +182,13 @@ erDiagram
     MONETIZATION_CELL {
         id   game_id PK, FK
         text product_id PK
-        text dim_combo PK "canonical encoding; unknown first-class"
-        date utc_day PK
+        text dim_combo PK "canonical encoding; unknown/other first-class"
+        date utc_day PK "the logical day (Foundation §4.7)"
         int  purchase_count
         num  revenue_normalized
         text product_category "non-key"
         json revenue_local_breakdown "currency to local sum"
+        int  gen "class-N flush generation gate (Foundation §3.2.1); guards MOVE/FX-recompute downward writes"
     }
     PAYER_DAY {
         id   game_id PK, FK
@@ -203,11 +204,12 @@ All per Foundation §2.1 grammar / §2.2 palette / §2.3 lifecycle (incl. rehydr
 
 | Key | Type | Content | TTL | Fate |
 |---|---|---|---|---|
-| `{game_id}:mon:{utc_day}:cnt` | hash | field = cell key, value = running `purchase_count` | ~72 h from day end | **flushes** → `MONETIZATION_CELL.purchase_count` |
-| `{game_id}:mon:{utc_day}:rev` | hash | field = cell key, value = running normalized-revenue sum | ~72 h | **flushes** → `revenue_normalized` |
-| `{game_id}:mon:{utc_day}:loc` | hash | field = `{cell key}#{currency}`, value = running local-amount sum | ~72 h | **flushes** → `revenue_local_breakdown` |
-| `{game_id}:payer:{utc_day}` | set | distinct payer `user_id`s that day | ~72 h | **flushes** → `PAYER_DAY.payer_members` (absolute member replace) |
-| `{game_id}:rev:{utc_day}` | hash | `total` = running normalized day sum; `loc:{currency}` = per-currency day local sums | ~72 h | **flushes** → `PAYER_DAY.revenue_day_total` |
+| `{game_id}:mon:{logical_day}:cnt` | hash | field = cell key, value = running `purchase_count` | ~72 h from day end | **flushes → class N** (Foundation §3.2.1 — the enrichment MOVE decrements it): generation-gated Lua-snapshot upsert → `MONETIZATION_CELL.purchase_count`; **never `GREATEST`** |
+| `{game_id}:mon:{logical_day}:rev` | hash | field = cell key, value = running normalized-revenue sum | ~72 h | **flushes → class N** (MOVE + FX recompute both mutate it) → `revenue_normalized` |
+| `{game_id}:mon:{logical_day}:loc` | hash | field = `{cell key}#{currency}`, value = running local-amount sum | ~72 h | **flushes → class N** (MOVE moves it) → `revenue_local_breakdown` |
+| `{game_id}:payer:{logical_day}` | set | distinct payer `user_id`s that day | ~72 h | **flushes → class S** (Foundation §3.2.1): `PAYER_DAY.payer_members` via **set-union** (never blind replace) |
+| `{game_id}:rev:{logical_day}` | hash | `total` = running normalized day sum; `loc:{currency}` = per-currency day local sums | ~72 h | **flushes → class N** (FX recompute mutates) → `PAYER_DAY.revenue_day_total` |
+| `{game_id}:mon:{logical_day}:meta` | hash | `gen` = per-bucket monotonic generation, `INCR`'d inside every enrichment-MOVE and FX-recompute atomic block; seeded from the durable row's generation on rehydrate; read atomically with the cells in the class-N flush snapshot | ~72 h | not flushed as data — carries the `gen` gate (Foundation §3.2.1 class N) |
 | `{game_id}:stage:{transaction_id}` | hash per pending key (Foundation §2.2, "05 only") | `srv:*` fields — product, counted `dim_combo`, normalized amount, `purchase_day` (doubles as the **applied-marker**); `cmp:*` fields — companion dims held pre-join | **48 h**, capped at the purchase day's seal | **transient-and-losable** — loss forfeits late enrichment and crash-resume detection only, never money |
 
 - **Rehydrate-on-miss** (Foundation §2.3) seeds `cnt`/`rev`/`loc` from `MONETIZATION_CELL` (incl. `revenue_local_breakdown`) and `payer`/`rev` from `PAYER_DAY` — mandatory for FX recompute and absolute flush to stay safe post-crash.
@@ -230,6 +232,7 @@ Additions to Foundation §3.1 at steps 3, 6, 7, 8 (steps 1–2, 4–5, 9 unchang
 
 **Step 7 — durable-immediate + the Phase-06 handoff.**
 - **`payer_tier` is stamped pre-purchase:** read 06's payer state *as of before this purchase* (`PAYER_SPINE_EXT` existence; **`lifetime_spend_normalized`** vs `payer_tier_rule` fixed thresholds — Q3 ratified 2026-07-17, lifetime not period) → `first`/`repeat`/`whale`. Tiering happens at count time and is never retro-applied (§6); the spine stores spend, never the tier label, so threshold edits re-tier all future reads at zero migration cost.
+- **FX-parked spend → ABSTAIN, never deflate (added 2026-07-17 — the whale-mis-tier fix).** `lifetime_spend_normalized` is a Σ over *converted* rows; a purchase parked unconverted (`fx_unconverted`, missing/over-cap FX rate) contributes **0** to it. Reading a fixed-dollar tier off that undercount would classify a real whale as a minnow — and it hits hardest exactly in thin-FX/exotic-currency markets (the operator's own market under sanctions). So the payer carries a **`has_unconverted_spend`** flag on `PAYER_SPINE_EXT` (set true whenever a parked purchase commits for that payer, cleared when the parked amount later converts pre-seal — the existing unsealed FX recompute already revisits it). While the flag is true, the payer's tier reads **`indeterminate`** (a first-class tier value, never silently `minnow`), because their true lifetime spend is a lower bound, not a known value. When the parked amounts convert (rate lands, or operator adds the currency to `fx_table`), the recompute adds them to `lifetime_spend_normalized`, clears the flag, and the tier resolves normally on the next read. This is the same "abstain on unknown, never collapse unknown→0" posture the `unknown` dimension slice and the parked-revenue handling already use. Downstream (06 whale-share, payer-tier segmentation) treats `indeterminate` as its own bucket, never folded into `minnow`.
 - **Purchase-accept signal — the handoff point (normative contract: [bridge 05.5](05.5-purchase-accept-contract.md)):** emitted after 6b success (or resume), carrying `(game_id, user_id, transaction_id, purchase_day, price_local, currency, normalized_amount, product_id)` — `original_transaction_id` rides the idempotency row (consumers read it there); `is_first_purchase` is **derived by 06's own write-once insert**, never signal-trusted. 06's step-7 code consumes it in-worker; its two writes (`PAYER_SPINE_EXT.first_purchase_day` write-once; `PAYER_PERIOD_SPEND` increment) are **bound into the same atomic unit as the 6b gate insert**. Delivery is at-least-once (crash-resume may re-emit) but application is **exactly-once**: duplicates die at the gate and a crashed unit fully re-runs or fully no-ops (05.5 §1).
 
 **Step 8 — the `transaction_id` join + rollup (one atomic Redis block per event).**
@@ -272,7 +275,7 @@ Client-supplied dimension values — `region`, `in_game_state`, and any free-for
 **`source=server` trust — resolved into Foundation §4.5 (amendment landed).** The trust boundary is never a body field: provenance derives from the **credential class** — `GAME.sdk_key` (client scope) vs `GAME.server_credential` (server scope, now in Foundation §1.2) — mirroring "`game_id` is server-derived from SDK-key auth" (Foundation §1.1). The body `source` still selects which payload sub-contract applies, but `source=server` is **honored only under the server credential**; a mismatch is a validation failure. Phase 03 cites the same section. Remaining contingency: the F-3 key-class decision (Foundation §9.5) — until settled the fallback classification is `client`, under which no purchase row is revenue-eligible.
 
 **Dashboard read-model** (reads, never stored; live-vs-historical per Foundation §3.3 — sealed days from Postgres, open days merged from `mon`/`payer`/`rev` buckets with last-flush fallback):
-- **Top package by `<D>`** (measure ∈ {revenue, count}; period): over `MONETIZATION_CELL` rows in period whose `dim_combo` contains a `D=` component — group by (value of `D`, product), sum measure, rank within each value. The marginalize-and-rank read of §2; rankings are display-time only.
+- **Top package by `<D>`** (measure ∈ {revenue, count}; period): over `MONETIZATION_CELL` rows in period whose `dim_combo` contains a `D=` component — group by (value of `D`, product), sum measure, rank within each value. The marginalize-and-rank read of §2; rankings are display-time only. **Simpson's-paradox guard (added 2026-07-17):** a cross-dimension "which package/segment wins" readout can **reverse** under aggregation when dimension combos carry unequal weight — and the `unknown` slice (missing companion) is a **non-random** confounder (companion delivery correlates with connectivity → region/device). So the UI (a) **never auto-declares a "winning" package** from aggregated segmented data — it surfaces the per-value ranking and lets the operator compare within a fixed combo; (b) shows the **`unknown` share** alongside every segmented comparison (a large share = comparison untrustworthy); (c) labels cross-combo comparisons as subject to composition effects. Genuine comparisons hold confounders fixed (compare within one `dim_combo`) rather than trusting a raw aggregate.
 - **`unknown` / `other` — first-class slices:** `D=unknown` (not supplied) and `D=other` (supplied, over the cardinality budget — Design §) both rank like any other value and are never filtered by default; the two are distinct signals (missing-context vs value-sprawl).
 - **Unconverted revenue by currency (Q8):** `Σ loc` for `fx_unconverted`-parked amounts, per currency — the sibling of context-coverage health; a day sealing with parked revenue is an operator-actionable signal (FX fetcher down / currency absent from the table), not an error.
 - **Context-coverage health:** per client-only dim `D`: `1 − measure(D=unknown) / measure(total)`; plus overall full-context share (revenue in cells with no `unknown` among active client-only dims). Direct read — the companion-delivery health signal (metric sheet).

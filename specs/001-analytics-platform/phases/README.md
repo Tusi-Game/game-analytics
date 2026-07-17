@@ -1,6 +1,6 @@
 # Phases — Per-Story Design Specs
 
-**Feature**: 001-analytics-platform · **Layer**: story design (sits between `../spec.md` and `../metrics/`) · **Status**: **Design-complete (2026-07-17)**
+**Feature**: 001-analytics-platform · **Layer**: story design (sits between `../spec.md` and `../metrics/`) · **Status**: **Design-complete + adversarial-hardened (2026-07-17)** — see §Adversarial hardening pass below
 
 This directory breaks the system into **one spec per story**. Each phase-spec is a *conceptual design of one story* — what it is, how it is calculated, what data it needs, what it stores for the long run, how that data is shaped in Redis vs the database (at the design-thinking level), and every configuration knob the operator gets.
 
@@ -69,6 +69,16 @@ Every item below carries a locked decision record + rationale + named sources in
 
 Four net-new hardening questions resolved alongside: **Q7** data-erasure (four-tier GDPR/CCPA posture → [`00.5-ops-envelope.md`](00.5-ops-envelope.md)), **Q8** missing-FX-rate (as-of lookup + park-unconverted → 05 Design; `fx_staleness_max_days` knob), **Q9** envelope wire versioning (`/v1/events` + batch `v` + additive-only-forever → [Foundation §1.1/§9.7](00-foundation.md)), **Q10** license + npm (Apache-2.0 platform / MIT SDKs; trusted publishing + provenance + changesets → SDK specs 08/09).
 
+## Adversarial hardening pass — 2026-07-17 (post-design review)
+
+After the design layer locked, a **multi-agent adversarial review** (four sourced research agents — streaming/ingestion, metric-correctness, client/server SDK, security/ops/GDPR — plus an internal-consistency audit) found ~35 findings the design missed, and two dedicated design agents resolved the hard ones. Full research trail: [`../research.md` §8](../research.md). Highlights by class (all integrated into the phase specs):
+
+- **Data-corruption / durability:** per-class flush policy (Foundation §3.2.1 — retires the unsafe blind-overwrite, closes §E-4); mandated Postgres PITR backup + tested restore (00.5 §8 — the "must not lose Postgres" invariant had no mechanism); slewing-NTP + clock guards (Foundation §4.2); framed/decode-verified gzip raw files + a normative manual-rebuild procedure (01.5 §4/§5.1); BullMQ stalled-job double-count fix (Foundation §3.1 step 6).
+- **Feature-breaking / metric bias:** the `purchase_attempt_id` join key (08/09/05 — the store `transaction_id` join would silently empty segmented-monetization dims in production); reliable session-end via `sendBeacon` (02/08); FX-parked whale mis-tier abstention (`indeterminate` tier, 05/06); small-cohort + survivorship + Simpson's-paradox guards (04/05/06); HLL-lever scoped count-only (Foundation §9.2).
+- **The single highest-leverage fix — the platform logical day** (Foundation §4.7): one platform timezone, set-once at install, applied to every metric + seal — fixing the systematic single-timezone (GMT+3:30) retention distortion from UTC-day cohorting. Multi-timezone is out of v1 scope.
+- **Security / privacy completeness** (00.5 §9, phase 10): out-of-DB secret encryption, TLS-normative (+ Iran ACME guidance), best-effort client-provenance metrics, operator MFA/lockout, default-deny PII, GDPR Art. 15/20 access (was erasure-only), digest-pinned images.
+- **Residual v1 defers (documented):** full anon↔user merge (edge captured), automated rebuild tool (procedure specified), Redis HA (SPOF named), DST multi-timezone, net-revenue refunds.
+
 ## Relationship to `../metrics/` sheets
 
 These phase-specs are a **new per-story layer**. The deeper per-metric reference in [`../metrics/`](../metrics/README.md) is kept and cross-linked from each phase — the metric sheets carry the fuller edge-case catalogs, rejected-variant rationale, and open-question trails. Where a phase-spec and its metric sheet overlap, they agree by construction (the phase-spec is a re-projection of the sheet into the 6-part structure); the metric sheet remains the deeper reference, the phase-spec the story-level design.
@@ -78,9 +88,9 @@ These phase-specs are a **new per-story layer**. The deeper per-metric reference
 Stated once here; no phase re-defines them.
 
 - **One canonical event envelope**: `game_id`, `user_id` (+ `anon_id`), `session_id`, `event_id`, `name`, `kind` ∈ {`generic`, `economy`, `purchase`, `session`}, `client_event_time`, `client_sent_time`, `server_received_time`, `props`.
-- **Skew-corrected event-time** (§G): `corrected = client_event_time + (server_received_time − client_sent_time)`; bucketed as **UTC day**; 60 s dead-band; future-dated clamps to server-now; a day stays mutable for a **48 h grace** then **seals** — later events for a sealed day are **quarantined to the raw file**, never folded in.
-- **Activeness** (§B-1, locked in Phase 02): a user is "active" on a UTC day **iff a `session` event started that day**. Retention (04), sessions (02), and DAU (06) all use this one definition.
-- **Money truth = server** (§D): revenue is **server-verified only**; the client emits a zero-money context companion keyed by `transaction_id`. Non-money events dedup by `event_id` + 24 h; **money dedups durably by `transaction_id`**, never a time window.
+- **Skew-corrected event-time** (§G): `corrected = client_event_time + (server_received_time − client_sent_time)`; bucketed as the **platform logical day** (`utc_day(corrected + reporting_offset)`, single timezone — Foundation §4.7); 60 s dead-band; future-dated clamps to server-now; a day stays mutable for a **48 h grace** then **seals** — later events for a sealed day are **quarantined to the raw file**, never folded in. (Server clock disciplined by slewing NTP — Foundation §4.2.)
+- **Activeness** (§B-1, locked in Phase 02): a user is "active" on a logical day **iff a `session` event started that day**. Retention (04), sessions (02), and DAU (06) all use this one definition.
+- **Money truth = server** (§D): revenue is **server-verified only**; the client emits a zero-money context companion joined to the server row by **`purchase_attempt_id`** (an SDK-minted key threaded through the store call — not the store `transaction_id`, which the client often lacks at context time). Non-money events dedup by `event_id` + 24 h; **money dedups durably by `transaction_id`**, never a time window.
 - **Results-only storage** (FR-010 / SC-007): the database holds only **processed results + a minimal per-user spine** — never raw event logs. Every metric is computable from incremental results without re-scanning raw events.
 - **Write-ahead raw ordering** (§E): a worker appends the raw file (fsync'd, if cold storage is on) **before** updating any counter — so the raw file is always a complete superset of anything counted (the manual rebuild floor; SC-008).
 

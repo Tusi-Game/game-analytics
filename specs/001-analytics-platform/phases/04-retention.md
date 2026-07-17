@@ -14,7 +14,9 @@
 **The question it answers.** *Of the players who first appeared on a given calendar day (an install-date cohort), what fraction were still active exactly N days later?* Retention is the headline health metric — D1 caps everything downstream — and it is the metric that drove the "minimal per-user spine" storage decision.
 
 **Definition (LOCKED — classic Nth-day / "On" retention):**
-> `D_N = retained_users(offset = N) / cohort_size`, grouped by install-date cohort, where a user counts toward `offset = N` iff they were **active on the day exactly N days after their `first_seen` day** (UTC). Independent per offset; stable and write-once once day N has elapsed.
+> `D_N = retained_users(offset = N) / cohort_size`, grouped by install-date cohort, where a user counts toward `offset = N` iff they were **active on the day exactly N days after their `first_seen` day** (the platform **logical day**, Foundation §4.7). Independent per offset; stable and write-once once day N has elapsed.
+
+The classic Day-N definition is **retained unchanged** — the 2026-07-17 timezone fix (Foundation §4.7) moves only *which calendar the day is measured against* (platform logical day = the operator's local midnight, e.g. Asia/Tehran +3:30) from raw UTC to the single platform timezone. For a single-timezone player base this eliminates the systematic D1 deflation from UTC-day cohorting (the local 00:00→offset band being misattributed to the previous UTC day; devtodev: 4–5 pp on a ~30 % base). Benchmarks (D1≈40/D7≈20/D30≈10, themselves calendar-day figures) and the "classic Day-N" UI label survive.
 
 The dashboard MUST label this **"classic Day-N retention."**
 
@@ -27,8 +29,8 @@ The dashboard MUST label this **"classic Day-N retention."**
 ## 2. How it is calculated
 
 **Grain / bucketing.**
-- **Cohort** = `date_utc(first_seen)`, per `game_id`.
-- **Day-offset** = `date_utc(session_start_time) − date_utc(first_seen)`, on skew-corrected UTC time. Offset 0 = install day.
+- **Cohort** = `logical_day(first_seen)` (Foundation §4.7), per `game_id`.
+- **Day-offset** = `logical_day(session_start_time) − logical_day(first_seen)`, on skew-corrected time floored through the platform `reporting_offset`. Offset 0 = install day.
 - **Bit-set rule (idempotent):** for each qualifying `session` event, if the user's bit for `offset` is unset, set it and increment `retained_users(game, cohort, offset)`. Setting an already-set bit is a **no-op** — this makes reprocessing, dedup-misses, and midnight-span-splits safe (FR-016).
 - A midnight-spanning session counts once, in its **start** day (only that bit set).
 
@@ -37,11 +39,15 @@ The dashboard MUST label this **"classic Day-N retention."**
 cohort_size(g, c)       = # distinct users with date_utc(first_seen) = c   (game g)
 retained_users(g, c, N) = # users in cohort (g,c) whose active-offset set contains N
 D_N(g, c)               = retained_users(g, c, N) / cohort_size(g, c)
-headline D_N(g)         = Σ_c retained_users(g,c,N) / Σ_c cohort_size(g,c)   over mature cohorts only
+headline D_N(g)         = Σ_c retained_users(g,c,N) / Σ_c cohort_size(g,c)   over the FIXED mature-cohort set (below)
 ```
 D1/D7/D30 are columns N = 1/7/30 of the same table; the cohort × offset triangle **is** the heatmap.
 
-**Immature-cohort masking:** mask (render **N/A**, never a low number) any cell where `today_utc − cohort_date < N` (day N not yet elapsed). Headline averages **mature cohorts only** — a cohort installed 3 days ago must not drag D7/D30 toward zero.
+**Headline composition guard (added 2026-07-17 — the survivorship/mixed-maturity bias).** Averaging D_N across cohorts of *mixed maturity* biases the blended number, and it **drifts** as immature cohorts mature and un-mask — pure composition change with zero behavioral change (a documented 45 %→70 % artifact). Two rules contain it: (1) the headline averages over the **fixed set of cohorts that are all mature at N** (a cohort enters the D_N average only once it is mature at N, and the set is stated, so the number is not a silently-moving survivor-weighted average); (2) the default retention surface is the **cohort × offset heatmap triangle, not a single blended line**, so composition is visible. The blended headline is explicitly labeled composition-dependent (not a behavioral constant). This is a read-model rule; no stored cell changes.
+
+**Immature-cohort masking:** mask (render **N/A**, never a low number) any cell where `today_logical − cohort_date < N` (day N not yet elapsed; `today_logical` = the platform logical today, Foundation §4.7 — computing it in raw UTC would leave the mask edge off by up to one day near the boundary). Headline averages **mature cohorts only** — a cohort installed 3 days ago must not drag D7/D30 toward zero.
+
+**Small-cohort masking (added 2026-07-17 — the sample-size guard, orthogonal to maturity).** A cohort can be *mature* at offset N yet *tiny*: a 12-install cohort reading D30 = 16.7 % (2/12) carries a Wilson 95 % CI of roughly [4.7 %, 44.8 %] — a ~40-point band shown with the same visual authority as an n = 50 000 figure. Cells whose denominator (`cohort_size`, or the segment's sub-denominator) is below **`retention_min_cohort_size`** (default 30) are masked **low-confidence** (greyed + a sample-size annotation, never hidden, never a bare precise-looking percent); the maturity mask and this mask are independent predicates and both apply. Segmented retention views (retention × region × payer-tier) shred cohorts into dozens of installs, so this guard is load-bearing there. A cohort-vs-cohort "X beats Y" callout is gated behind a two-proportion/χ² test, never a raw point comparison.
 
 ### Worked example (today = 2026-07-17 UTC)
 
@@ -121,7 +127,8 @@ Computable without raw re-scan? **Yes** — cohort assignment happens once at `f
 |---|---|---|---|
 | `retention_day_targets` | `[1, 7, 30]` | any set of positive offsets | **Forward-only for widening past the tracked horizon** (offsets beyond the previously-tracked max were never recorded — results-only, nothing to re-derive). Adding an offset ≤ the tracked max, or reporting narrower, is retroactive. Recommend tracking `max(targets)` + ~15 days headroom so modest widening stays retroactive. |
 | `session_inactivity_timeout_min` | 30 | 1–240 | Owned by Phase 02; changing it changes what qualifies as a session going forward → **forward-only**. Retention inherits, does not redefine. |
-| `per_game_reporting_timezone_offset` | UTC | display offset | **Display-only, never re-buckets** — offset math stays UTC to preserve write-once immutability. A true timezone re-bucket is a rebuild-forward, out of v1 scope. |
+| `reporting_offset` (platform-level, Foundation §4.7) | UTC (0) | single platform offset | **Correctness-bearing, set-once at install.** Defines the platform logical day used for cohort assignment, offset math, seal, and masking. Single timezone platform-wide (no per-game/multi-timezone in v1). Changing it after data exists is a forward-rebuild (out of v1 scope), **not** a display toggle — for a single-timezone base set it to the operator's zone (e.g. Asia/Tehran +3:30) at install. |
+| `retention_min_cohort_size` | 30 | integer | **Display-only** — masks mature-but-tiny cohort cells as low-confidence (sample-size guard, §2). A read-time predicate; mutates no stored cell. |
 
 **Inherited globals:** flush 5 min, dedup 24 h, day-seal 48 h.
 
@@ -185,7 +192,7 @@ erDiagram
 
 | Key | Type | Content | TTL | Class |
 |---|---|---|---|---|
-| `{game_id}:ret:{utc_day}` | **hash** | open **activity-day** bucket. Fields: `cell:{cohort_date}:{offset}` → running **absolute** `retained_users` for the cell whose activity day `cohort_date + offset = utc_day`; `size` → running absolute `cohort_size` of the cohort born this day (`cohort_date = utc_day`, the offset-0 day) | ~72 h from day end (Foundation §2.3) | **Flushed** — absolute-value upsert every 5 min |
+| `{game_id}:ret:{logical_day}` | **hash** | open **activity-day** bucket. Fields: `cell:{cohort_date}:{offset}` → running **absolute** `retained_users` for the cell whose activity day `cohort_date + offset = logical_day`; `size` → running absolute `cohort_size` of the cohort born this day (`cohort_date = logical_day`, the offset-0 day) | ~72 h from day end (Foundation §2.3) | **Flushed — class M** (Foundation §3.2.1): `cell:*`/`size` are transition-fired `+=`-only, upsert via `GREATEST` + `HSETNX` seed |
 
 - **Bucket-day rule (explicit):** a cell lives in the bucket of its **activity day** `d = cohort_date + offset`, not its cohort day — per Foundation §2.3's retention carve-out. Day `d`'s bucket therefore holds `size`, `cell:{d}:0`, `cell:{d−1}:1`, `cell:{d−7}:7`, … At most 3 open `ret` buckets per game (today + 2 grace days).
 - **Flusher mapping:** `cell:{c}:{N}` → `RETENTION_CELL(g, c, N)`; `size` → `COHORT(g, utc_day)`. Absolute upserts only; a retried flush is a no-op (Foundation §3.2). Seal of `d` = final flush, then the bucket is left to expire.
@@ -210,7 +217,7 @@ erDiagram
 - **8a.** *Only if created:* rehydrate-on-miss, then increment `size` in `{game_id}:ret:{c}`, `c = utc_day(first_seen)` = the session's corrected start day. `c` is **open by construction** — 02's step-5 gate governs on the start day — so a fresh `first_seen` can never target a sealed `COHORT` row.
 
 **Sequence B — set-once bit + conditional increment (`session` kind only; executed in 02's session-start path on 04's behalf):**
-- **7b — offset math:** `offset = utc_day(corrected session_start) − utc_day(first_seen)`; the spine row is guaranteed by 7a for this same event. Guards: `offset < 0` (the one surviving cause under first-session seeding — an in-grace processing race, a later-day session seeding `first_seen` before an earlier-day session of the same user processes; the late-`reconciled`-first-touch cause is structurally eliminated, [bridge 02.5 §5](02.5-activeness-spine-contract.md); bounded ≥ −2 by the 48 h window geometry) → skip bit + counter, tally **`negative_offset`** (Foundation §1.2 enum — amendment landed; unified rule in [bridge 02.5 §5](02.5-activeness-spine-contract.md)); `offset > tracked horizon` → silent no-op by design (untracked). `first_seen` is write-once — no backdating; backdating would mean cross-cohort moves and sealed-cell rewrites, both forbidden.
+- **7b — offset math:** `offset = logical_day(corrected session_start) − logical_day(first_seen)` (Foundation §4.7; the `reporting_offset` shifts both operands equally, so the difference — and the `≥ −2` negative bound below — is translation-invariant); the spine row is guaranteed by 7a for this same event. Guards: `offset < 0` (the one surviving cause under first-session seeding — an in-grace processing race, a later-day session seeding `first_seen` before an earlier-day session of the same user processes; the late-`reconciled`-first-touch cause is structurally eliminated, [bridge 02.5 §5](02.5-activeness-spine-contract.md); bounded ≥ −2 by the 48 h window geometry) → skip bit + counter, tally **`negative_offset`** (Foundation §1.2 enum — amendment landed; unified rule in [bridge 02.5 §5](02.5-activeness-spine-contract.md)); `offset > tracked horizon` → silent no-op by design (untracked). `first_seen` is write-once — no backdating; backdating would mean cross-cohort moves and sealed-cell rewrites, both forbidden.
 - **7b′ — set-once bit (durable-immediate):** one atomic conditional durable write — "set bit `offset` iff unset, report the **transition**". Bit already set → **full no-op**: 8b is skipped entirely. This single guard is what makes dedup misses beyond 24 h, reprocessing, and midnight-span splits safe (§2, FR-016).
 - **8b.** *Only on a 0→1 transition:* rehydrate-on-miss, then increment `cell:{c}:{offset}` in `{game_id}:ret:{d}`, `d = c + offset` = this event's own corrected start day — open, because this very event passed step 5 for day `d`.
 
@@ -260,7 +267,7 @@ And a fifth requirement, also of **Phase 02's session flow** (DD-1 resolved, 202
 - **Per-cell liveness:** a cell `(c, N)` is live (Redis-merged) iff its **activity day** `c + N` is still open — one cohort row can mix sealed historical cells with 1–3 live tail cells; the merge is per-cell by activity day, exactly Foundation §3.3.
 - **Nothing masked is stored** — maturity and masking are pure read-time predicates; sealed cells are immutable regardless.
 - **Labelling:** the UI labels the figure **"classic Day-N retention"** with the contrast tooltip (§B-3); offsets beyond a widened horizon carry the "tracking begins <date>" annotation (forward-only, §6).
-- **Timezone:** `per_game_reporting_timezone_offset` is display-only; maturity, masking, and offset math stay UTC (§6).
+- **Timezone:** the platform **logical day** (Foundation §4.7) governs cohort assignment, offset math, maturity, and masking — `today_logical` is the maturity reference. No separate display-time offset is applied (it is already baked into the logical day; a single platform timezone, §6). **Invariant test (added):** assert `bitmap bit 0 == 1 for every user with a first_seen` (D0 = 100 % by construction — the seeding session sets bit 0 in the same event that establishes `first_seen`, same timestamp, same logical-day floor; bridge 02.5 §2 binds them) and `COHORT.cohort_size ≡ RETENTION_CELL(c, 0)`; a pipeline guard alarms if either ever fails (catches a flooring/desync regression, e.g. a stray separate pass re-deriving the D0 bit).
 
 ### Relations with other stories
 

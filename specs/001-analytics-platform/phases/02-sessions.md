@@ -17,6 +17,7 @@
 - **SDK-managed, not server-inferred.** The client SDK owns session lifecycle and mints `session_id`. Server-inferred sessionization is impossible under results-only storage (it would need per-user last-event memory / raw events in the hot window). The SDK emits one self-contained `session` fact — results-only-native.
 - **Start.** First tracked event after SDK init, or the first event after the previous session expired. A fresh `session_id` is minted at that moment.
 - **End.** When the inactivity timeout elapses with no tracked event (**default 30 min**, on skew-corrected client time), OR on an explicit app-close/background signal — whichever fires first.
+- **Reliable close under browser lifecycle (added 2026-07-17 — the tab-close data-loss fix).** The risk this closes: a browser tab closed (or OS-killed) never sends its buffered terminal `session` event, so the session either vanishes or its end is mis-derived, inflating duration. Two mechanisms make the close reliable without violating results-only: (1) the client SDK flushes the terminal event via **`navigator.sendBeacon` / `fetch(keepalive)` on `visibilitychange→hidden` and `pagehide`** (not `beforeunload`), the delivery-reliable unload path (~91 % vs. ~90 % *loss* for a plain unload `fetch`) — 08 §2.1; and (2) the **reconcile-at-next-init** path (08 §2.1 R) emits the orphaned session's terminal event (`reason = reconciled`, end = persisted `last_activity`) when the app reopens. A one-and-done player who closes the tab and *never returns* is covered by (1); (2) is the backstop for a hard kill mid-beacon. The server never reconstructs a session from member events (results-only, §1) — it relies on the terminal event, which these two paths make near-certain to arrive. **Duration is never silently inflated to last-activity + 30 min**: the terminal event carries the true `last_activity` end, and the timeout is the boundary rule, not a fabricated end time.
 - **Why 30 min.** Cross-industry default (GA4 / Adjust / GameAnalytics). Shorter over-splits an interrupted player; longer merges distinct bouts. Configurable per game.
 - **`session_id`.** Client-generated opaque id (ULID preferred, UUID fine), unique per game+user; the server treats it as an opaque grouping key and never parses it.
 - **What emits the kind.** The SDK emits **exactly one** `kind = session` event **at session end** (or reconciled at next init if the app was killed). It carries `session_id`, `session_start_time`, `session_end_time`, `duration_ms`. **This single event is the sole thing that marks a user "active on a day"** — the retention bit is driven by the session's **start** UTC day (§B-1). No other event kind sets it.
@@ -28,7 +29,7 @@
 
 ## 2. How it is calculated
 
-**Time-bucketing.** UTC day (§G). **Count/frequency** key on the session's **start** UTC day; **duration** splits across the days it overlaps. **Grain:** per `game_id` × UTC-day; sessions-per-user rolls up over a window.
+**Time-bucketing.** The platform **logical day** (Foundation §4.7 — `utc_day(corrected + reporting_offset)`; every "UTC day" / "day" below reads as the logical day, a single platform timezone). **Count/frequency** key on the session's **start** logical day; **duration** splits across the logical days it overlaps. **Grain:** per `game_id` × logical-day; sessions-per-user rolls up over a window.
 
 **Formulas (definitional):**
 ```
@@ -176,8 +177,8 @@ Owned domain tags: **`sess`**, **`act`** (Foundation §2.1).
 
 | Key pattern (§2.1 grammar) | Type (§2.2) | Content | TTL (§2.3) | Fate |
 |---|---|---|---|---|
-| `{game_id}:sess:{utc_day}` | hash | fields `session_count`, `duration_sum_ms`, `sessions_touching` — running absolutes for that day-bucket | ~72 h from day end | **flushes** → `SESSION_DAY_RESULT` (absolute upsert) |
-| `{game_id}:act:{utc_day}` | set (HLL at the same key under the scale lever) | `user_id`s with a session **start** on that day | ~72 h from day end | **flushes** → `ACTIVE_USER_DAY.members` (absolute membership replace — idempotent; sketch upsert under the lever) |
+| `{game_id}:sess:{logical_day}` | hash | fields `session_count`, `duration_sum_ms`, `sessions_touching` — running absolutes for that day-bucket | ~72 h from day end | **flushes → class M** (Foundation §3.2.1): `+=`-only, upsert via `GREATEST` + `HSETNX` seed |
+| `{game_id}:act:{logical_day}` | set (HLL at the same key under the scale lever) | `user_id`s with a session **start** on that day | ~72 h from day end | **flushes → class S** (Foundation §3.2.1): `ACTIVE_USER_DAY.members` via **set-union** (never blind replace); `PFMERGE` under the sketch lever |
 
 - A midnight-spanning session touches **two** `sess` hashes (start day: all three fields; end day: `duration_sum_ms` + `sessions_touching` only) and exactly **one** `act` set (start day). At most 3 open buckets per domain per game (Foundation §2.3).
 - **Rehydrate-on-miss** (Foundation §2.3) applies to both: seed the hash from the `SESSION_DAY_RESULT` row and the set from `ACTIVE_USER_DAY.members` (empty if none) before the first post-crash increment.

@@ -42,14 +42,15 @@ erDiagram
     USER_SPINE {
         id      game_id PK, FK
         id      user_id PK
-        ts      first_seen "corrected first-session start; UTC day = cohort + Day-0 anchor (02.5 A)"
+        ts      first_seen "corrected first-session start (UTC epoch stored); logical day (§4.7) = cohort + Day-0 anchor (02.5 A)"
         bits    active_days_bitmap "1 bit per day-offset from first_seen; set-once"
     }
     PAYER_SPINE_EXT {
         id      game_id PK, FK
         id      user_id PK, FK
-        date    first_purchase_day "write-once"
+        date    first_purchase_day "write-once (logical day)"
         num     lifetime_spend_normalized "monotonic; updated inside the 05.5 atomic unit (Q3, 2026-07-17)"
+        bool    has_unconverted_spend "true while a parked fx_unconverted purchase is unresolved → tier reads indeterminate, not deflated (whale-mis-tier fix, 2026-07-17)"
     }
     PAYER_PERIOD_SPEND {
         id      game_id PK, FK
@@ -169,7 +170,7 @@ erDiagram
     COHORT ||--o{ RETENTION_CELL : "one row per offset"
 ```
 
-**Skeleton, not the full picture.** Story designs refine this where their Design sections flag it (03 adds the `ECONOMY_FLOW_SEGMENT_RESULT` sibling + `ECONOMY_SUPPLY_DAY` snapshot; 05 adds `product_id`/`refunded` to the idempotency row and a per-currency local breakdown on `MONETIZATION_CELL`). **The SDK + hardening phase (2026-07-17) added operational entities** off this skeleton: `GAME_SDK_KEY` / `GAME_SERVER_CREDENTIAL` (the 1..N realization of `GAME`'s credential scalars — phase 10, Q2), `OPERATOR_ACCOUNT` + `CONFIG_AUDIT` (phase 10), and `ERASURE_LEDGER` (00.5, Q7) — all registry/operational, none per-user-spine draws. `ER-full.md` is the complete assembled system ER.
+**Skeleton, not the full picture.** Story designs refine this where their Design sections flag it (03 adds the `ECONOMY_FLOW_SEGMENT_RESULT` sibling + `ECONOMY_SUPPLY_DAY` snapshot; 05 adds `product_id`/`refunded` to the idempotency row and a per-currency local breakdown on `MONETIZATION_CELL`). **The SDK + hardening phase (2026-07-17) added operational entities** off this skeleton: `GAME_SDK_KEY` / `GAME_SERVER_CREDENTIAL` (the 1..N realization of `GAME`'s credential scalars — phase 10, Q2), `OPERATOR_ACCOUNT` + `CONFIG_AUDIT` (phase 10), and `ERASURE_LEDGER` (00.5, Q7) — all registry/operational, none per-user-spine draws. **The adversarial-review hardening pass (2026-07-17) added two more operational entities:** `IDENTITY_EDGE` (`(game_id, anon_id, user_id, first_linked_at)` — the anon→user link captured but not merged, §4.6; operational, not a spine tier) and the class-N flush **`gen`** column on `MONETIZATION_CELL` / `PAYER_DAY` (§3.2.1). **Reversible infrastructure secrets** — `cold_storage_credentials`, `fx_table` material, and the per-game `ERASURE_LEDGER` hash key — are **never stored plaintext in `GAME.config`**; they are envelope-encrypted with a master key held **outside Postgres** (env var / Docker secret / file mount), decrypted only in-worker (00.5 §8, phase 10). `ER-full.md` is the complete assembled system ER.
 
 ### 1.3 The per-user spine — ONE family, three tiers
 
@@ -220,7 +221,7 @@ Domain tags are **owned** (one story writes a domain; others may read): `cnt` + 
 
 ### 2.3 The open-day bucket lifecycle (shared rule)
 
-Every incremental result cell belongs to **exactly one corrected-UTC-day bucket** — the day whose seal governs its mutability (for retention cells, the *activity* day `cohort + offset`; for everything else, the event's corrected day).
+Every incremental result cell belongs to **exactly one corrected-logical-day bucket** (§4.7) — the day whose seal governs its mutability (for retention cells, the *activity* day `cohort + offset`; for everything else, the event's corrected logical day).
 
 ```
 OPEN    day D from its start until D_end + 48 h (the §G grace):
@@ -232,9 +233,14 @@ SEALED  the Postgres row is immutable; late events for D are quarantined
         to the raw file (§4.3) — never folded in, no Redis bucket recreated.
 ```
 
+(`D_end` is the end of logical day `D`, §4.7 — the seal clock is shifted by `reporting_offset` uniformly with the day floor.)
+
 - **TTL conventions:** dedup markers **24 h** fixed; open-day buckets **~72 h from day end** (seal + margin); companion staging **48 h**; queue lifetimes managed by BullMQ.
 - **Reconciliation note (flagged):** the stack line "Redis hot counters ≤ 1 day" is read here as *"only open days are hot"* — the §G 48 h grace forces at most **3 concurrent open day-buckets** per game×domain (today + 2 grace days). Honoring both a 48 h-mutable day *and* an idempotent absolute-value flush requires the bucket to live until seal. This is a foundation-level interpretation, not a spec change; recorded as resolved-unless-challenged.
 - **Rehydrate-on-miss (mandatory):** a worker incrementing a cell in a **missing** open-day bucket must first seed that bucket from the durable Postgres value (0 if none). This is what makes absolute-value flushes safe after a Redis loss — without it, a post-crash flush would clobber already-durable partial results with near-zero values.
+- **Rehydrate double-seed race + half-seed visibility (normative — closes the ST1/ST2 adversarial finding).** Two hazards attend rehydrate-on-miss, both resolved:
+  1. **Concurrent double-seed.** Two workers rehydrating the same missing bucket must not have one seed clobber the other's already-applied increments. Seed **per field with `HSETNX`** (set-if-absent): the first seed wins, the second no-ops, and both workers' subsequent `HINCRBY` apply on top of the single seed — no increment is lost. Membership sets (`act`/`payer`) seed via `SADD` of the durable members (union-idempotent → a double-seed is inherently harmless).
+  2. **Flushing a half-seeded bucket.** The bucket carries a **`seeded` marker field**, written atomically as the **last** step of the rehydrate block (after every `HSETNX` seed and, for class-N buckets, the `gen` initialization). **The flush skips any dirty bucket whose `seeded` marker is absent** and retries it on the next sweep — so a flush never reads a partially-seeded bucket. The class-typed merge rules (§3.2.1) are defense-in-depth behind this marker: even a half-seeded read cannot corrupt the durable value under any class.
 - **Observed-value cap + `other` overflow (shared convention).** Any key-space fed by client-supplied free-form values (event names — §H-4 catalog cap; economy currencies — 03; monetization client dimensions — 05) is bounded: the first N distinct observed values per game (per dimension) are kept first-class, the rest collapse to a literal **`other`** overflow bucket that is itself counted, and the cap is **forward-only** (a change never retro-collapses sealed cells). `other` (supplied-but-over-budget) is distinct from `unknown` (not supplied). This is the drop-and-count posture of Foundation §4.4 generalized to cardinality; each story sets its own default cap knob.
 
 ---
@@ -270,7 +276,7 @@ For each dequeued event (workers process queue batches; order is per-event):
 3. **Kind-route + validate.** `generic` → permissive accept (catalog caps apply). Typed kinds → strict payload validation; invalid → mark **quarantined** (tally + step 4, then stop). An **unrecognized `kind`** (§1.1 open enum — an SDK newer than the server) → quarantine-mark (`unknown_kind` tally + step 4, then stop); never rejected, never coerced to `generic`.
 4. **Write-ahead raw append** (if cold storage on): append the full envelope — accepted *or* quarantine-marked — to the game's corrected-day file, fsync'd, **before any counter, spine, or Redis write**. Counter-first ordering is a bug (§E / SC-008). Duplicates *are* appended (dedup happens next); a rebuild re-dedups by `event_id` / `transaction_id`.
 5. **Seal check** (§4.3): corrected day already sealed → append went to the quarantine tail → tally `sealed_late` → **stop**.
-6. **Dedup gate** (§4.1): non-money — `event_id` 24 h marker, duplicate → stop. Purchase — durable `transaction_id` insert-if-absent, conflict → stop.
+6. **Dedup gate** (§4.1): non-money — `event_id` 24 h marker, duplicate → stop. Purchase — durable `transaction_id` insert-if-absent, conflict → stop. **Crash-window ordering (normative — closes the ST4 stalled-job double-count):** the windowed `event_id` marker is claimed here, **before any counter/spine/hot write**, so the raw-append (step 4) and the dedup-claim form one recovery unit: a BullMQ stalled-job re-run (at-least-once, `maxStalledCount` ≥ 1 is normal) that died *after* step 4 but *before* claiming the marker re-appends the batch to raw (harmless — rebuild re-dedups by `event_id`/`transaction_id`) and re-claims; a re-run that died *after* claiming stops here on the existing marker. The failure direction is always the safe one — a crash between claim and counter yields at most an **undercount** (the accepted `event_id` residual), never a double-count. Each raw append additionally carries its batch `job_id` so rebuild tooling can collapse a physically re-appended batch. Purchases are immune throughout (durable `transaction_id` gate).
 7. **Durable-immediate writes** (idempotent absolutes, straight to Postgres, *not* flush-mediated): `first_seen` insert-if-absent (**session events only** — sequence A executes in 02's session path per bridge 02.5, ratified 2026-07-17); `active_days_bitmap` bit set (session-start events only); `PAYER_SPINE_EXT.first_purchase_day` write-once + `lifetime_spend_normalized` increment (inside the 05.5 atomic unit); the `PURCHASE_IDEMPOTENCY` row (already written in 6). These are absolute state — losing them to a Redis crash would silently corrupt retention/money, so they never ride the flush.
 8. **Redis hot updates:** increment/insert into the open-day buckets (rehydrate-on-miss, §2.3) — catalog deltas, day counts, session accumulators, active-user set, economy accumulators, monetization rollup cells, payer set, revenue counter, companion staging.
 9. **Ack** the queue job.
@@ -279,10 +285,29 @@ For each dequeued event (workers process queue batches; order is per-event):
 
 ### 3.2 The flush (Redis → Postgres)
 
-- A **BullMQ repeatable job** every `flush_interval` (default **5 min**, per §E) sweeps dirty open-day buckets (a small per-domain dirty-registry of touched bucket keys) and **upserts absolute values**: `ON CONFLICT … DO UPDATE SET value = EXCLUDED.value`. A retried or duplicated flush is a **no-op by construction**.
+- A **BullMQ repeatable job** every `flush_interval` (default **5 min**, per §E) sweeps dirty open-day buckets (a small per-domain dirty-registry of touched bucket keys) and upserts absolute values under a **per-class merge rule** (§3.2.1 — a blind `SET value = EXCLUDED.value` is retired: it was unsafe under a torn `HGETALL` read racing concurrent `HINCRBY`, and after a crash+rehydrate it could clobber durable results *downward*). A retried or duplicated flush is a **no-op by construction** under every class.
 - **Deltas never flush; only absolutes do.** Anything that can't be expressed as an absolute cell value must be a durable-immediate write (step 7) instead.
 - At **seal time** a final flush finalizes the day's cells; the read model then stops consulting Redis for that day.
 - **Redis durability posture** (§E): AOF `everysec` + RDB snapshots, `maxmemory-policy noeviction`. Accepted loss on crash: ≤ 1 s AOF window in the queue + un-flushed open-day drift (≤ flush cadence) — never sealed results, never spine/money (durable-immediate), never the raw file (write-ahead).
+
+#### 3.2.1 Flush idempotency classes (normative — resolves the torn-read / downward-clobber findings, closes research §E-4)
+
+The absolute-value upsert is only self-healing when the Redis cell it reads is *monotonically non-decreasing within the open day*; then a torn-low snapshot is repaired by the next flush. A cell that can legitimately **decrease** in-day (a monetization enrichment MOVE, an FX re-normalization) has no such self-heal, and a stale-low post-crash read could push below durable truth. Every flushed structure is therefore assigned one of four classes, fixed here; a story never re-chooses its class, and adding a flushed structure requires stating its class.
+
+| Class | Definition | Flush write rule | Seed | Atomic read? |
+|---|---|---|---|---|
+| **M — monotonic-additive** | value only `+=` within its day (pure `HINCRBY`) | **monotonic-max**: `SET value = GREATEST(target.value, EXCLUDED.value)` | `HSETNX` from durable | not required — torn read self-heals |
+| **N — non-monotonic / mutable-down** | value can legitimately decrease in-day (enrichment MOVE, FX recompute) | **generation-gated absolute**: `SET value = EXCLUDED.value WHERE EXCLUDED.gen ≥ target.gen` | `HSETNX` + `gen` seed | **required** — one Lua `EVAL` snapshots the whole bucket + its `gen` atomically |
+| **S — set-membership** | grow-only distinct-member set, flushed as absolute | **set-union**: `members = target.members ∪ EXCLUDED.members` (never blind replace) | `SADD` from durable | not required |
+| **L — LWW-guarded** | day-less per-user snapshot, guarded by `as_of` | **unchanged** — `SET … WHERE EXCLUDED.as_of ≥ target.as_of` | per-entry rehydrate | not required |
+
+- **Class M** — why max is sufficient and Lua is *not* needed: durable and live values both only rise within the day, so `GREATEST` is a monotone merge that can only move the durable value up. A torn-low read is discarded in favor of the already-higher durable value, and the next flush carries the true value forward — **self-healing, no atomic read required.** A half-rehydrated bucket can only propose ≤ durable truth, which `GREATEST` rejects. Members: `EVENT_DAY_COUNT.count`, `EXCEPTION_TALLY.count`, `SESSION_DAY_RESULT.{session_count,duration_sum_ms,sessions_touching}`, `ECONOMY_FLOW_RESULT`/`ECONOMY_FLOW_SEGMENT_RESULT.amount_sum`, `RETENTION_CELL.retained_users`, `COHORT.cohort_size`.
+- **Class N** — the monetization/FX resolution: `MONETIZATION_CELL` cells are mutable-down (05's enrichment MOVE decrements an old `dim_combo` cell and increments a new one; the unsealed-day FX recompute rewrites `rev` up or down). `GREATEST` is **forbidden** here (it would freeze the pre-move higher value and double-count). Mechanism: (1) each open `mon`/`rev` bucket carries a monotonic `gen`, seeded from the durable row's stored generation on rehydrate and `INCR`'d inside every atomic block that can move a cell down (each MOVE, each FX-recompute pass); (2) the flush reads all cells **and** `gen` in one **Lua `EVAL`** snapshot (uninterruptible → no MOVE interleaves between reading two cells, so a MOVE's decrement+increment are both in or both out); (3) Postgres upserts absolutes tagged with the snapshot's `gen`, rejecting any write whose `gen` is older than the durable row's (`WHERE EXCLUDED.gen ≥ target.gen`) — a stale/retried flush can neither clobber a fresher value nor double-apply. Members: `MONETIZATION_CELL.{purchase_count,revenue_normalized,revenue_local_breakdown}`, `PAYER_DAY.revenue_day_total`. *(Rejected alternative: re-representing the MOVE as an append-only per-`(txn,dim)` ledger — it reintroduces per-purchase durable rows, violating results-only, FR-010.)*
+- **Class S** — grow-only membership (`ACTIVE_USER_DAY.members`, `PAYER_DAY.payer_members`): flush as **set-union**, not blind replace, so a torn or half-rehydrated snapshot (always a subset) is restored by union with the durable set; the next flush converges. HLL sketches under the scale lever (§2.2/§9.2) merge identically via `PFMERGE`.
+- **Class L** — `BALANCE_SNAPSHOT` is a day-less per-user snapshot already guarded by `as_of` LWW (03) — the `as_of` guard is a generation gate by another name and already rejects a stale-low write. **Verified unchanged.** (`GREATEST` on a balance value would be wrong — a balance can legitimately fall — which is exactly why 03 guards on `as_of`, not on the value.)
+- **Mixed structure — `EVENT_CATALOG` (01 `cat`):** day-less, and its fields split *per field*: `count` and `last_seen` merge by `GREATEST` (max), `first_seen` merges by **`LEAST` (min)** — an earlier observed first-seen must lower it — and `property_type_sets` by **union**. A single class label does not fit; 01 applies the per-field rule. (Because `cat` never seals, a torn read there is always healed by the next write regardless; the `first_seen`=`LEAST` direction is nonetheless mandatory.)
+- **Invariants preserved:** every class is a no-op on retry (M: `GREATEST` of equal values; S: union of equal sets; N: same-`gen` identical absolutes; L: equal-`as_of` guard). Write-ahead / durable-immediate money truth (`PURCHASE_IDEMPOTENCY`, spine) is untouched — `gen` guards only the *display projection*, never money truth. No per-event Postgres write is introduced: the MOVE, FX recompute, and `gen` bump all run in the existing per-event Redis block; the flush stays on the 5-min cadence, hot path stays Redis.
+- **Schema/deploy notes (below the no-DDL altitude, flagged for `/plan`):** `gen` lives as a small integer column on the class-N result rows (`MONETIZATION_CELL`, `PAYER_DAY`); the Lua class-N flush, if Redis is ever sharded to a Cluster, needs a hash-tag on the bucket key (`{game_id:mon:day}`) so all cells co-locate in one keyslot — single-node Redis (the current posture) is unaffected.
 
 ### 3.3 The read model (dashboard API)
 
@@ -307,10 +332,12 @@ For each dequeued event (workers process queue batches; order is per-event):
 skew      = server_received_time − client_sent_time
 corrected = client_event_time + skew        (applied only if |skew| > 60 s dead-band)
 corrected = min(corrected, server_now)      (future-clamp)
-bucket    = UTC day of corrected
+bucket    = logical_day(corrected) = utc_day(corrected + reporting_offset)   (§4.7)
 ```
 
-Every time-bucketed structure in every story uses `corrected`; `server_received_time` is the fallback bucket only for events whose client times are unusable (then tallied).
+Every time-bucketed structure in every story uses `corrected`; `server_received_time` is the fallback bucket only for events whose client times are unusable (then tallied). **The day floor is the platform logical day (§4.7), not raw UTC** — `corrected` is still stored as a UTC epoch; the `reporting_offset` is applied **once, here at the floor**, and never re-applied at display.
+
+**Server-clock discipline (normative — the skew formula and every seal boundary depend on it).** Both the skew correction (`server_received_time`) and the seal check (`D_end + 48 h`, §2.3) read the server wall clock. A backward NTP **step** would misplace events across a day boundary *permanently* (the raw file routes by corrected day too), and a forward step at a seal boundary would prematurely seal a still-open day and drop in-grace events as `sealed_late`. Therefore v1 **mandates a slewing time daemon** (`chronyd` with a bounded `maxslewrate`, never `ntpd -g` / step-on-start) as a hard deployment requirement — the clock is disciplined by *slewing*, never stepping. Two guards back it up: (1) a **sanity clamp** — an event whose computed `corrected` moves it more than `clock_sanity_max_hours` (default 26 h) from `server_received_time` is bucketed on `server_received_time` + `time_fallback` tally rather than trusted; (2) a **monotonicity alarm** — a worker observing `server_received_time` move backward between consecutive batches raises an operational alert (a stepped clock, the failure this guards). The dedup TTL and any pure interval already use monotonic semantics; seal decisions must be computed from a clock known to be slewing, not stepping.
 
 ### 4.3 Day-seal + quarantine (§G)
 
@@ -333,7 +360,23 @@ Locked with it: **prefix-typed key strings** (class recognizable on sight and by
 
 ### 4.6 Identity (v1)
 
-The spine keys on the game-provided `user_id` as present at processing time; `anon_id` rides the envelope for SDKs that identify late. **Anon→identified aliasing/merging is out of v1 scope** (per the metrics sheets' open questions) — a design must not silently invent a merge; flag it if a story needs one.
+The spine keys on the game-provided `user_id` as present at processing time; `anon_id` rides the envelope for SDKs that identify late. **Anon→identified aliasing/merging is out of v1 scope** (per the metrics sheets' open questions) — a design must not silently invent a merge; flag it if a story needs one. **Identity-edge capture, however, is in scope (a v1 minimum, not the full merge):** when a session that carried `anon_id` is later followed by an `identify(user_id)`, the client SDK emits an `identify` alias event recording the `(anon_id → user_id)` edge, and the platform stores that edge (a tiny append-only `IDENTITY_EDGE` registry, `(game_id, anon_id, user_id, first_linked_at)`, operational-scope, not a spine tier). v1 does **not** rewrite history from it (cohorts/retention stay on the id present at processing time — the documented cardinality caveat, §9.3), but capturing the edge *now* keeps a future retroactive stitch recoverable; shipping with no edge captured would lose that linkage forever (the landmine). Consumed by no v1 metric; it exists solely so the anon-vs-identified split is later reconcilable.
+
+### 4.7 The platform logical day (timezone) — CORRECTNESS-BEARING (resolved 2026-07-17)
+
+**One platform timezone; every day and every seal is computed through it.** The analytics service carries a single **`reporting_offset`** (platform-level config, default UTC / offset 0). It defines the logical day used by *every* time-bucketed structure and *every* seal boundary:
+
+```
+logical_day(t) = utc_day(t + reporting_offset)
+```
+
+- **Applied uniformly** to retention cohorts and day-offsets, sessions (start-day count + activeness bit), DAU/`ACTIVE_USER_DAY`, economy flow cells, monetization cells, payer day-sets, catalog day-counts, exception tallies — and to the `D_end + 48 h` seal clock (§2.3). "A day" means one thing platform-wide: midnight in `reporting_offset`.
+- **Correctness-bearing, not display-only.** The offset participates in the day floor and therefore in write-once cohort/seal assignment. This is the fix for the single-timezone distortion: for a player base concentrated in one non-UTC zone, UTC-day cohorting systematically misattributes the local 00:00→`reporting_offset` band to the previous UTC day, deflating D1 by a measured 4–5 pp on a ~30 % base (devtodev) — a one-directional error that does **not** average out for a single-timezone base. Setting `reporting_offset` to the operator's zone (e.g. **Asia/Tehran, +3:30**) collapses that band to zero (devtodev: single-timezone alignment = 100 % accuracy).
+- **Raw storage stays UTC.** `corrected` is stored as a UTC epoch in the raw day-file and everywhere else; only the *day floor* applies the offset. The rebuild floor, `event_id`/`transaction_id` dedup, and immutability of stored UTC epochs are untouched.
+- **Immutability / change policy.** Because the offset defines write-once day assignment, **changing it after data exists re-buckets history** — forbidden under the seal invariant (§2.3). The offset is therefore **set at install/registration and treated as fixed**; a later change is a forward-rebuild operation (out of v1 scope), exactly the monetization-dimension precedent (research §G-3). A fixed numeric offset is exact for a DST-free zone (Asia/Tehran abolished DST in 2022); a DST-observing audience would drift one hour twice a year at the boundary — out of v1 scope (single-timezone, fixed-offset assumption; research §G-2).
+- **Why a constant offset preserves every invariant.** `reporting_offset` is a rigid translation of the whole time axis: it shifts every day boundary and every seal time by the same amount. So the "exactly one bucket per cell" rule, the strictly-increasing seal-time lemma (02 step 5), the 3-concurrent-open-bucket geometry, D0 = 100 %, `cohort_size ≡ RETENTION_CELL(c,0)`, and the negative-offset `≥ −2` bound (a *difference* of two logical days, translation-invariant) all hold unchanged. The only thing that breaks immutability is *changing* the offset — hence set-once.
+
+*Source: devtodev "User retention: measure by hours or calendar days" (calendar-day vs 24 h attribution; single-timezone alignment = 100 % accuracy). Rejected alternative: 24 h-rolling-from-`first_seen` retention (Amplitude default) — verified results-only-safe but it would swap the locked classic-Day-N definition and fix retention alone, leaving every other metric on the UTC boundary; the single-platform logical day fixes all metrics with one rule.*
 
 ---
 
@@ -381,8 +424,11 @@ Cross-check: spine bits/money are durable-immediate, so a Redis loss can leave a
 | Results-only storage (FR-010/SC-007) | §1.2–1.4 store split; §1.3 spine tiers |
 | One canonical envelope | §1.1 |
 | Skew-corrected event-time, 60 s dead-band, future-clamp, 48 h seal, quarantine | §4.2–4.3; op-order steps 2, 5 |
+| Platform logical day (single timezone, correctness-bearing, set-once) | §4.7; §2.3 lifecycle; §4.2 floor |
+| Slewing server clock (NTP discipline) + sanity clamp + monotonicity alarm | §4.2 clock-discipline clause |
 | Write-ahead raw ordering (§E/SC-008) | op-order step 4; §6 |
-| Idempotent absolute-value flush, 5 min default; AOF everysec + noeviction | §3.2; §2.3 rehydrate rule |
+| Idempotent class-typed flush (M/N/S/L), 5 min default; AOF everysec + noeviction | §3.2 / §3.2.1; §2.3 rehydrate + seeded-marker rule |
+| Identity-edge capture (anon→user link, no v1 merge) | §4.6 |
 | Dedup: event_id 24 h vs durable transaction_id (§F) | §4.1; op-order step 6 |
 | Activeness = session-start (§B-1) | bitmap written only by 02's session-start path (§5) |
 | Money-truth = server, companion join, `unknown` slice (§D) | §1.2 (`PURCHASE_IDEMPOTENCY`, `MONETIZATION_CELL`), 05's design |
@@ -403,7 +449,7 @@ Cross-check: spine bits/money are durable-immediate, so a Redis loss can leave a
    - **Feeds:** downstream stories and what they take.
    - **Ordering / lifecycle:** hard dependencies (e.g. spine row must exist before offset math).
    - **Flagged bridges:** cross-story concerns needing a `0X.5` spec — **name and justify; do not create the file** (Stage 3 does).
-5. **Naming:** entities `UPPER_SNAKE` singular as in §1.2; Redis keys per §2.1 grammar with owned domain tags; day = corrected UTC day everywhere.
+5. **Naming:** entities `UPPER_SNAKE` singular as in §1.2; Redis keys per §2.1 grammar with owned domain tags; day = the platform **logical day** everywhere (`logical_day(corrected) = utc_day(corrected + reporting_offset)`, §4.7; default offset 0 ≡ UTC).
 6. **Altitude discipline:** entities/keys/cardinality, Redis patterns/types/TTLs, op-ordering, contract shapes. No `CREATE TABLE`, no column types beyond the loose logical types, no code, no migrations.
 7. **Kind routing:** every accepted event of any kind feeds 01's catalog + day counts; typed kinds *additionally* feed their owning story at op-order step 7/8. A story's worker section describes its **step 7/8 additions**, not a new pipeline.
 8. **Contradictions:** a design that seems to need to violate an invariant or its own story §4/§5 flags it as an open question in its Design section — it never silently changes the requirement.
@@ -413,8 +459,8 @@ Cross-check: spine bits/money are durable-immediate, so a Redis loss can leave a
 ## 9. Foundation-level open flags
 
 1. **Open-day Redis retention (~72 h) vs the "≤ 1 day hot counters" stack phrasing** — reconciled in §2.3 (at most 3 open buckets per game×domain); flagged for operator awareness, not a spec change.
-2. **`ACTIVE_USER_DAY` / `PAYER_DAY` membership sets contain `user_id`s.** They are day-keyed **projections** of the spine/idempotency (rebuildable, §1.3), not spine expansions — kept out of the ledger on that basis. If exact membership retention is deemed too spine-like at scale, the HLL lever drops membership for sealed days (counts only), at the cost of exact window-unions.
-3. **Identity aliasing (anon→identified)** — out of v1 scope (§4.6); any story needing a merge must flag, not implement.
+2. **`ACTIVE_USER_DAY` / `PAYER_DAY` membership sets contain `user_id`s.** They are day-keyed **projections** of the spine/idempotency (rebuildable, §1.3), not spine expansions — kept out of the ledger on that basis. If exact membership retention is deemed too spine-like at scale, the HLL lever drops membership for sealed days (counts only), at the cost of exact window-unions. **HLL-lever scope (normative — resolves the ST10 contradiction with §2.2's "never HLL for retention"):** the HLL membership lever is **count-only**. It may replace membership *only* for metrics that need a distinct *count* (DAU/WAU/MAU counts). It is **forbidden** for any read that needs per-user membership itself — retention offset math, new-vs-returning composition, and any window-union that must answer "is this specific user in the set?" — because a sketch cannot answer set-membership and `PFMERGE` union error compounds across merges (±~0.8 %/merge, worse at medium cardinality). Those reads either stay on exact sets or fall back to the spine bitmap (retention is spine-native and never touches these sets). A deployment flipping the lever must keep an exact structure for membership-dependent reads or accept degrading only the count metrics — never retention/new-returning. §2.2's palette rule and this lever are hereby reconciled: HLL is for *counts*, never for *membership-bearing* logic.
+3. **Identity aliasing (anon→identified)** — full merge out of v1 scope (§4.6); any story needing a merge must flag, not implement. **Amended (2026-07-17):** the anon→user *edge* is captured now (`IDENTITY_EDGE`, §4.6) so a future retroactive stitch stays recoverable — v1 does not rewrite history from it, but it is no longer discarded (the adversarial-review "identity landmine": ship-with-no-edge would lose the linkage forever). Cardinality caveat (one human → two spine rows across an anon/identified boundary) stands, now reconcilable-later rather than permanent.
 4. **`first_seen` determination — RESOLVED (2026-07-17)**: first accepted **session** event; sequence A executes in 02's session path (bridge 02.5 §6 decision record — symmetry with the activeness invariant; GameAnalytics/Adjust install ≡ first-session precedent; D0 = 100% invariant). §5's ownership row and §3.1 step 7 updated; never-sessioned users have no spine row (`no_spine_row` advisory tally; money family spine-independent per §1.3).
 5. **Provenance derivation (§4.5) — RESOLVED (2026-07-17)**: F-3 ratified — two credential classes (public `sdk_key` / secret `server_credential`; §4.5 decision record). 03's trusted-only totals and 05's `source=server` gate operate as designed; the fallback-`client` rule survives only for a valid-but-unclassifiable legacy edge.
 6. **Data erasure (GDPR/CCPA) — designed (2026-07-17, Q7)**: four-tier posture — hard-delete the spine family + scrub membership sets (`ACTIVE_USER_DAY`/`PAYER_DAY`); leave aggregated day cells untouched (GDPR Recital 26 / Art. 17(3)(d); the unanimous industry position — GA4, Matomo, PostHog, Plausible); `PURCHASE_IDEMPOTENCY` detaches (`user_id` tombstoned, money fields retained under Art. 17(3)(b)); raw S3 files handled by retention-bounded expiry + a rebuild-filter erasure ledger ("put beyond use"), optional offline strict-rewrite tool; Redis self-erases by TTL behind a wait-for-seal gate. Normative spec: [`00.5-ops-envelope.md`](00.5-ops-envelope.md).

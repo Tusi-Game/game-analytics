@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-analytics-platform`
 **Created**: 2026-07-17
-**Status**: Draft — **all six `[NEEDS CLARIFICATION]` resolved via research (2026-07-17)**; second-order open questions tracked in `research.md §6`. Pending stakeholder review, then `/plan`.
+**Status**: Draft — **all six `[NEEDS CLARIFICATION]` resolved via research (2026-07-17)**. The design layer (`phases/`) then resolved 10 ratification questions (Q1–Q10) and, in a subsequent **adversarial-review hardening pass (2026-07-17)**, ~35 further findings across data-corruption, feature-breaking, metric-correctness, and security/ops/GDPR classes — see `phases/README.md` §Hardening and the per-phase specs. Most `research.md §6` second-order questions are now resolved in the design layer (§X-2 session, §D-2 FX, §G-2/§G-3 timezone, §H-4 caps); the residual defers are listed below. Pending stakeholder review, then `/plan`.
 **Input**: Owner wants a lightweight, self-hostable analytics platform for their own Phaser.js / React games (with NestJS backends), because GameAnalytics and Google Analytics are unusable under sanctions / network restrictions. Must serve **multiple games** from one install, lean heavily on Redis + a queue for processing, store only **processed results** (not raw logs) in Postgres, and keep disposable daily raw-event files as cold backup (uploaded to S3, then deleted locally).
 
 **Per-metric detail**: Each metric now has a dedicated research-phase spec sheet — SDK data captured → admin configuration → calculation (formula + worked example) + data-shape requirements — under [`metrics/`](metrics/README.md). Sheets cover raw events/catalog, economy, retention, monetization, sessions, funnels, and derived KPIs. **Note**: the funnels sheet promotes funnels from design-only (FR-022) to a computed metric and flags this as an **open scope decision to ratify** (see `metrics/README.md`).
@@ -41,7 +41,7 @@ As a game developer, I can register a new game in the platform, receive an SDK k
 **Independent Test**: Register a game via the dashboard, wire the SDK into a throwaway page, fire events, and confirm live event counts increment for that game (and only that game). Fully demonstrable on its own.
 
 **Acceptance Scenarios**:
-1. **Given** I am logged into the dashboard, **When** I create a new game "MyGame", **Then** I receive a unique SDK key and an ingest URL scoped to that game.
+1. **Given** I am logged into the dashboard, **When** I create a new game "MyGame", **Then** I receive a unique SDK key; events POST to the fixed `/v1/events` endpoint and are attributed to that game by the key (not a per-game URL path).
 2. **Given** the SDK is initialized with a valid key, **When** the game fires a batch of events, **Then** the ingest endpoint accepts them quickly (returns without waiting on processing) and they appear in that game's live counters within a configurable flush interval.
 3. **Given** a request presents an invalid or unknown SDK key, **When** it hits the ingest endpoint, **Then** it is rejected and no data is recorded.
 4. **Given** two different games are registered, **When** each sends events, **Then** their data is fully isolated — one game's dashboard never shows another game's events.
@@ -102,7 +102,7 @@ As the operator, raw events are appended to a per-game daily file, and a nightly
 
 - **Redis loss**: Redis holds only transient queue data + hot counters (≤1 day). If Redis is lost, current-day live counters + in-flight queue are lost; durable results in Postgres and the daily raw file survive. **No automated replay in v1** (resolved — research.md §E). Three settings make this safe: aggregates flush to Postgres every **5 min** (config); Redis runs **AOF `everysec` + RDB** (in-flight-queue loss ≤ ~1 s); and workers **append the fsync'd raw file BEFORE updating counters** (write-ahead), so the day's raw file is always a complete superset — the manual rebuild floor. Getting the ordering wrong (counter-first) creates *counted-but-never-logged* events that break SC-008.
 - **Duplicate / retried batches**: SDK offline-retry may resend a batch. Resolved — research.md §F: generic/economy events carry a per-event `event_id`; workers skip ids seen within a **24 h** Redis-backed window (rare double-count beyond the window is an accepted tradeoff for non-money events). **Purchases are deduped *durably* by the store-issued `transaction_id` (Postgres UNIQUE), never a Redis window** — an offline purchase retry can arrive days later, and money must never double-count.
-- **Clock skew / late events**: A client's event timestamp may lag (offline play, wrong device clock). Resolved — research.md §G: bucket by **client-event-time with skew-correction** `corrected = client_event_time + (server_received_time − client_sent_time)` (Snowplow/Amplitude formula; SDK sends both timestamps). Under 60 s skew, trust the client clock verbatim; clamp future-dated events to server-now. Stored as **UTC**; "a day" is UTC in v1. A day stays mutable for **48 h** (grace, tied to the flush cadence) then seals; events later than that for a sealed day are **quarantined to the raw file**, never folded into or clamped onto a sealed aggregate.
+- **Clock skew / late events**: A client's event timestamp may lag (offline play, wrong device clock). Resolved — research.md §G: bucket by **client-event-time with skew-correction** `corrected = client_event_time + (server_received_time − client_sent_time)` (Snowplow/Amplitude formula; SDK sends both timestamps). Under 60 s skew, trust the client clock verbatim; clamp future-dated events to server-now. Stored as **UTC epoch**; "a day" is the **platform logical day** (`utc_day(corrected + reporting_offset)`, single timezone — Foundation §4.7, upgraded in the hardening pass so a single-timezone base is not distorted by UTC-day cohorting). A day stays mutable for **48 h** then seals; later events for a sealed day are **quarantined to the raw file**. **Server-clock discipline** (hardening): the seal boundary and skew both read the server wall clock, so a **slewing NTP daemon is mandatory** (never a step) plus a sanity clamp + monotonicity alarm — a stepped clock would misplace events across a day/seal boundary permanently.
 - **Anonymous → identified transition**: Pre-login events use an SDK anon id; then the game supplies a real user_id. v1 accepts the game-provided id as authoritative; full anon↔user merge is deferred.
 - **Unknown / malformed events**: Events with unregistered names or bad shapes must not crash a worker. Resolved — research.md §H: **hybrid** — free-form named events are accepted and auto-registered into a per-game catalog; only the reserved typed kinds (`economy`/`purchase`/`session`) are strictly validated. Unparseable / nameless events are **dropped** (with a counter); typed-kind events missing required fields are **quarantined to the raw file** (the raw file is the dead-letter floor). Unique event names per game are capped (start at 500) so a buggy client can't explode the registry.
 - **Dimension config change**: Changing monetization dimensions applies **forward only** (rebuild-forward); historical rollups keep their old dimensions.
@@ -115,7 +115,7 @@ As the operator, raw events are appended to a per-game daily file, and a nightly
 ### Functional Requirements
 
 **Multi-tenancy & identity**
-- **FR-001**: System MUST let the operator register multiple games, each with a unique SDK key and a game-scoped ingest URL.
+- **FR-001**: System MUST let the operator register multiple games, each with a unique SDK key. Ingestion uses one fixed platform endpoint (`POST /v1/events`); the game is identified by **deriving `game_id` from the authenticating key's class server-side** (not a per-game URL path — Q9/Foundation §4.5).
 - **FR-002**: System MUST fully isolate data between games — no query or dashboard view may cross game boundaries.
 - **FR-003**: System MUST authenticate every ingest request by SDK key and reject invalid/unknown keys without recording data.
 - **FR-004**: A user MUST be identified by a stable game-provided `user_id`; the SDK MUST also generate an anonymous id for pre-login events. (Anon↔user merge is out of scope for v1.)
@@ -163,7 +163,10 @@ As the operator, raw events are appended to a per-game daily file, and a nightly
 - **FR-026**: The dashboard MUST read live figures from Redis and historical results from Postgres.
 
 **Configuration**
-- **FR-027**: All operational choices (batch interval, **Postgres flush cadence (default 5 min)**, **dedup window (default 24 h)**, **late-event grace / day-seal window (default 48 h)**, **per-game event-name cap (default 500)**, cold-storage on/off + target, monetization dimensions, retention day targets, level-bucket boundaries, per-game reporting timezone offset) MUST be configurable so the operator can change strategy later without code changes.
+- **FR-027**: All operational choices (batch interval, **Postgres flush cadence (default 5 min)**, **dedup window (default 24 h)**, **late-event grace / day-seal window (default 48 h)**, **per-game event-name cap (default 500)**, cold-storage on/off + target, monetization dimensions, retention day targets, level-bucket boundaries, **platform `reporting_offset` — the single timezone through which every day and seal is computed, set-once at install**) MUST be configurable so the operator can change strategy later without code changes.
+- **FR-028** (added in hardening): The platform MUST protect the durable store it depends on — **automated Postgres backup (PITR) to the S3-compatible target, with tested restore** — since results/spine loss is not acceptable (Foundation §6) and the raw files are not a database backup.
+- **FR-029** (added in hardening): Reversible infrastructure secrets (S3 credentials, FX material, erasure-ledger key) MUST be **encrypted with a master key held outside the database**; TLS is required for all credential/event traffic (the ingest API MUST refuse plain-HTTP bearer auth); the operator account MUST support brute-force lockout and optional MFA.
+- **FR-030** (added in hardening): The platform MUST honor GDPR right-of-**access** (Art. 15) and portability (Art. 20), not only erasure — a subject-data export assembled from the spine family.
 
 ### Key Entities
 
@@ -224,18 +227,18 @@ Deep multi-source research (one independent pass per question, verified against 
 - **§G** Event-time → **client-time with skew-correction**, UTC, 48 h day-seal grace, quarantine beyond (Edge Cases / FR-008b).
 - **§H** Schema → **hybrid accept-all + auto-registry**; strict typed kinds; drop-unparseable / quarantine-typed-invalid; 500-name cap (Edge Cases / FR-008/008c).
 
-### Open — surfaced *by* the above (resolve in `/plan` or a follow-up clarify)
+### Open questions — status after the design + hardening passes
 
-Resolving §B–§H exposed second-order questions, each with a default recommendation in **`research.md §6`**. Highest-leverage ones to settle before/at `/plan`:
+Resolving §B–§H exposed second-order questions (`research.md §6`); the design layer and the 2026-07-17 hardening pass then closed most of them. Current status:
 
-- **§X-2** **Session definition** — what starts/ends a session (inactivity timeout?). `session_id` is referenced but never defined; both retention ("active" = session) and monetization (`sessions_before_purchase`) depend on it. *(Recommend: SDK-managed session, config inactivity timeout ~30 min.)*
-- **§D-1** **Refunds/chargebacks** — gross-only v1 vs net revenue. *(Recommend: gross-only + `refunded` flag + notification hook for v2.)*
-- **§D-2** **Currency normalization** — who owns FX and the as-of date for `price_usd`. *(Recommend: store raw local + currency; config FX table stamped at purchase date.)*
-- **§G-3 / §B day-boundary** **Timezone-change policy** — a reporting-timezone change must be display-only (never re-bucket sealed aggregates) to preserve retention immutability.
-- **§X-1** **Manual raw-file rebuild runbook** — the raw file is the recovery floor but v1 ships no rebuild tooling; document the manual procedure.
-- **§H-3** **PII in free-form props** — accept-all can carry PII into the catalog; config denylist / hashing (solo-operator trust assumption).
+- **§X-2 Session definition** — **RESOLVED** (phase 02: SDK-managed, 30-min inactivity timeout; reliable close via sendBeacon on `visibilitychange`/`pagehide`, server-authoritative fallback).
+- **§D-2 Currency normalization** — **RESOLVED** (Q8: operator `fx_table`, as-of lookup, park-unconverted; the whale-mis-tier abstention added in the hardening pass — a parked purchase reads tier `indeterminate`, never a deflated value).
+- **§G-2 / §G-3 Timezone** — **RESOLVED, and upgraded in the hardening pass** to a single **platform logical day** (Foundation §4.7): the reporting offset is now *correctness-bearing* (set-once at install, applied to all metrics + seals), not display-only — fixing the systematic single-timezone retention distortion. Multi-timezone is explicitly out of v1 scope.
+- **§X-1 Manual raw-file rebuild** — **PROCEDURE SPECIFIED** (bridge 01.5 §5.1: decode-safe, re-dedup, re-apply erasure-ledger filter, logical-day floor, reconcile-forward-only). The automated tool remains a later-phase build; the contract is now normative.
+- **§H-3 PII in free-form props** — **RESOLVED to default-deny** (01 ships a non-empty `pii_prop_denylist` + a value scrubber applied before raw-append; the catalog-scrub tool is specified — 00.5 §9).
+- **§D-1 Refunds/chargebacks** — **still gross-only v1** (deliberate defer; `refunded` flag + the v2 net-revenue hook carried on `PURCHASE_IDEMPOTENCY`).
 
-*(Full list — §B-1..3, §D-1..5, §E-1..4, §F-1..4, §G-1..4, §H-1..4, §X-1..2 — in `research.md §6`.)*
+**New residual defers from the hardening pass** (documented, not blocking `/plan`): full anon↔user *merge* (the edge is now captured — Foundation §4.6 — merge deferred); the automated raw-rebuild *tool* (procedure specified); Redis HA replica + Sentinel (optional lever; single-Redis availability SPOF is named in 00.5 §8); DST-aware timezones (single fixed-offset zone assumed). See `phases/README.md` §Hardening for the full findings ledger.
 
 ---
 

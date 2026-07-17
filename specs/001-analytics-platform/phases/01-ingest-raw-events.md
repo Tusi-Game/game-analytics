@@ -9,7 +9,7 @@
 
 ## 1. Story understanding
 
-**The story.** A developer registers a game in the platform, gets an SDK key + a game-scoped ingest URL, drops the SDK into their Phaser/React game, fires events, and **watches the counts increment** within minutes — for their game, and only their game.
+**The story.** A developer registers a game in the platform, gets an SDK key and the platform's fixed ingest endpoint (`/v1/events`, Q9 — `game_id` is derived from the key, not a per-game URL path), drops the SDK into their Phaser/React game, fires events, and **watches the counts increment** within minutes — for their game, and only their game.
 
 **The question it answers.** *"Is my game sending data, and what is it sending?"* This is the "counting up" first-run experience and the substrate every other metric rides on. Two coupled deliverables:
 1. **The event catalog** — a self-populating, per-game registry of every event *name* seen, with its kind, first/last-seen, cumulative count, and the property keys observed on it. Derived metadata about the stream — never a raw event store.
@@ -23,7 +23,7 @@
 
 ## 2. How it is calculated
 
-**Time-bucketing.** UTC day, on skew-corrected client-event-time (shared foundation). Catalog `first_seen` / `last_seen` use the same corrected time.
+**Time-bucketing.** The platform **logical day** (Foundation §4.7 — `utc_day(corrected + reporting_offset)`, single platform timezone; every "UTC day" below reads as the logical day), on skew-corrected client-event-time. Catalog `first_seen` / `last_seen` use the same corrected time.
 
 **Grain.** Catalog = per `game_id` × `event_name`. Counts = per `game_id` × `event_name` × UTC-day (and a per-`game_id` × UTC-day grand total). **No user grain** — the catalog is stream-level and touches no per-user spine.
 
@@ -77,7 +77,7 @@ This story consumes the **canonical envelope as-is** — it adds no new required
 
 Minimum viable input for this story: a **stable non-empty `name`** and a **parseable body**. Absent either → dropped-and-counted (§6 of the deeper sheet).
 
-**Registration input (one-time, per game).** To register a game the operator supplies a name; the platform returns a unique **SDK key** and a game-scoped **ingest URL**. Every ingest request authenticates by SDK key; invalid/unknown keys are rejected with nothing recorded (FR-003).
+**Registration input (one-time, per game).** To register a game the operator supplies a name; the platform returns a unique **SDK key** (public `sdk_key`) and the fixed ingest endpoint (`POST /v1/events`, Q9). Every ingest request authenticates by SDK key, and **`game_id` + `provenance` are derived server-side from the key's class** (Foundation §4.5) — there is no per-game URL path to scope by. Invalid/unknown keys are rejected with nothing recorded (FR-003).
 
 ---
 
@@ -123,7 +123,8 @@ Everything here is an **incremental upsert at ingest** (min/max for seen-times, 
 | `event_name_cap_per_game` | 500 | 1–10000 | **Forward-only** for new names. Already-registered names are never evicted by lowering it; names beyond the cap are dropped-and-counted from the moment it is hit. |
 | `property_key_cap_per_event` | 50 | 1–1000 | **Forward-only.** Keys already observed on a name stay; new keys beyond the cap on that name are ignored (event still counts). |
 | `top_n_events` | 10 | 1–100 | **Display-only, immediate** — a read-time ranking; mutates no stored aggregate. |
-| `pii_prop_denylist` | `[]` | list of property-key names | **Forward-only** — denylisted keys are stripped at ingest; already-registered keys are not retro-scrubbed by a config change (Open: manual one-shot scrub tool, not an automatic side-effect). |
+| `pii_prop_denylist` | **`[email, ip, phone, name, address, ...]`** (default-DENY, 2026-07-17) | list of property-key names | **Forward-only** for the *config*, but ships a **non-empty default** — common PII keys are stripped at ingest **before** the raw-append out of the box, so one careless `props.email` never lands in a 90-day raw file or the catalog by default. Already-registered keys are scrubbed by the **one-shot catalog-scrub tool** (00.5 §9 — now specified to exist, no longer a bare "Open"). |
+| `pii_prop_value_scrubber` | on | on / off | **Forward-only.** Regex value-scrubber (emails, IP addresses) applied at ingest **before** raw-append — catches PII in *values* even under a non-denylisted key. A catalog PII-warning surfaces when a match is observed. |
 | `pii_prop_hash` | off | off / hash-listed-keys | **Forward-only**, same rationale. |
 | `drop_counter_visible` | on | on / off | **Display-only** — whether the dashboard surfaces the dropped/quarantined tallies. |
 
@@ -204,7 +205,7 @@ Owned domain tags (Foundation §2.1): **`cnt`**, **`cat`**, and the shared front
 | `{game_id}:cat:{event_name}` | hash — `kind`, `first_seen`, `last_seen`, `count` (lifetime absolute), `p:{prop_key}` = encoded observed-type set | idle ~72 h, refreshed on write | **Flushes** → `EVENT_CATALOG`. **Day-less domain**: no seal (rows never finalize — `last_seen` advances for the game's life), dirty-marked for the §3.2 sweep, rehydrate-on-miss from `EVENT_CATALOG` seeds min/max/count/type-sets so increments and unions stay absolute. `property_key_cap_per_event` is enforced against this hash's `p:*` field count. |
 | `{game_id}:cat:names` | set of registered names | idle ~72 h | **Transient-and-losable** — the name-cap gate + new-name detector; rehydrate-on-miss from `EVENT_CATALOG` (the durable truth for "is this name registered / how many exist"). |
 
-**Split summary:** `cnt` + `cat` hashes flush (absolutes only); `USER_SPINE.first_seen` is durable-immediate (never rides the flush); `dedup` markers, the rank zset, and the names set are transient-and-losable. SDK-key auth reads `GAME` directly (tiny registry; no Redis mirror, no new domain tag).
+**Split summary + flush classes (Foundation §3.2.1):** `cnt`/`cnt:exc` are **class M** (`+=`-only counts → `GREATEST` + `HSETNX` seed). `cat` is a **mixed day-less hash** flushed per-field: `count` and `last_seen` by `GREATEST` (max), **`first_seen` by `LEAST` (min — an earlier observed first-seen must lower it)**, property-type-sets by **union**; because `cat` never seals, a torn read there always self-heals on the next write, but the `first_seen`=`LEAST` direction is mandatory. `USER_SPINE.first_seen` is durable-immediate (never rides the flush); `dedup` markers, the rank zset, and the names set are transient-and-losable. SDK-key auth reads `GAME` directly (tiny registry; no Redis mirror, no new domain tag).
 
 ### Worker / pipeline flow
 

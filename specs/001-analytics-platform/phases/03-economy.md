@@ -23,7 +23,7 @@
 
 ## 2. How it is calculated
 
-**Time-bucketing.** UTC day (§G), skew-corrected client time; 48 h then seals; late events quarantined.
+**Time-bucketing.** The platform **logical day** (Foundation §4.7 — `utc_day(corrected + reporting_offset)`, single platform timezone; every "UTC day" below reads as the logical day), skew-corrected client time; 48 h then seals; late events quarantined.
 
 **Grain.** Base = **game × currency × UTC-day × reason × flow_type** (a source-total and a sink-total at each). Headline figures are the reason-collapsed rollup. Optional secondary grain adds player-context dimensions (level bucket, region) where present.
 
@@ -127,6 +127,7 @@ Provenance: a `client`/`server` `source` flag should ride each economy event (mi
 | Knob | Default | Range / values | Forward / retro |
 |---|---|---|---|
 | `economy_top_n_reasons` | 10 | 1–100 | **Retroactive** — display-time ranking/truncation over stored per-reason totals; no re-bucketing. |
+| `economy_ratio_min_events` | 100 | 1–100000 | **Display-only** — below this per-leg event count, sink_ratio is annotated low-volume/unreliable (§2 read-model). Mutates no stored cell. |
 | `economy_currency_allowlist` | empty = accept all | set of currency strings | **Forward-only** — enabling rejection leaves past aggregates untouched; default accepts + auto-registers any currency (accept-all posture). |
 | `economy_depth_capture_mode` | `last_known_balance` | `last_known_balance` / `off` | **Forward-only** — depth is only computable for days processed while enabled; turning it on does not backfill sealed days. |
 | `level_bucket_boundaries` (shared) | platform default | ascending level thresholds | **Forward-only** — re-bucketing sealed segmented aggregates violates immutability. |
@@ -209,9 +210,9 @@ Keys per the Foundation §2.1 grammar; owned domain tags **`eco`** and **`bal`**
 
 | Key | Type | Field → value | TTL | Durability class |
 |---|---|---|---|---|
-| `{game_id}:eco:{utc_day}` | hash | cell tuple `(provenance, flow_type, currency, reason)` → running absolute `amount_sum` | ~72 h from day end | **flushes** → `ECONOMY_FLOW_RESULT` (open-day bucket, §2.3 lifecycle, rehydrate-on-miss) |
-| `{game_id}:eco:{utc_day}:seg` | hash | `(provenance, flow_type, currency, segment_dim, segment_value, reason)` → absolute sum | ~72 h from day end | **flushes** → `ECONOMY_FLOW_SEGMENT_RESULT` (same sweep) |
-| `{game_id}:bal:{currency}` | hash | `user_id` → `(last_known_balance, as_of, provenance)` | none (rebuildable from durable snapshot) | **flushes** → `BALANCE_SNAPSHOT` via guarded upsert-latest; exists only when depth on |
+| `{game_id}:eco:{logical_day}` | hash | cell tuple `(provenance, flow_type, currency, reason)` → running absolute `amount_sum` | ~72 h from day end | **flushes → class M** (Foundation §3.2.1): amounts are `+=`-only, `GREATEST` + `HSETNX` seed |
+| `{game_id}:eco:{logical_day}:seg` | hash | `(provenance, flow_type, currency, segment_dim, segment_value, reason)` → absolute sum | ~72 h from day end | **flushes → class M** → `ECONOMY_FLOW_SEGMENT_RESULT` (same sweep) |
+| `{game_id}:bal:{currency}` | hash | `user_id` → `(last_known_balance, as_of, provenance)` | none (rebuildable from durable snapshot) | **flushes → class L** (Foundation §3.2.1): `BALANCE_SNAPSHOT` via `as_of`-guarded upsert-latest; exists only when depth on |
 | `{game_id}:bal:dirty` | set | `user_id:currency` entries touched since last flush | cleared by each flush | **transient-and-losable** (worst case: one redundant no-op flush) |
 | `{game_id}:eco:cur` | set | observed currency ids (auto-registration; allowlist/cap gate; dashboard picker) | none | **transient-and-losable** — rebuild = distinct currencies in `ECONOMY_FLOW_RESULT` |
 
@@ -278,7 +279,7 @@ The LWW domain is bounded by the seal: a sealed-day event stops at step 5 and ne
 |---|---|---|
 | source / sink daily series | base cells | collapse `provenance` + `reason` |
 | net flow | same | `total_source − total_sink` |
-| sink ratio | same | `total_sink / total_source`; **renders N/A when `total_source = 0`** — never 0 or ∞ |
+| sink ratio | same | `total_sink / total_source`; **N/A when `total_source = 0`** (and 0/0 → N/A, never 0 or ∞ or NaN). **Low-volume guard (added 2026-07-17):** when either leg is below `economy_ratio_min_events` (default 100), the ratio is annotated "low volume — unreliable" (a 3/1 = 300 % reading off 4 events is noise, not deflation). `net_flow` (always defined) is the **primary** balance metric; sink_ratio is the fragile secondary. An optional symmetric bounded form `(sink − source)/(sink + source)` ∈ [−1, +1] is offered as a stable alternative view. |
 | top faucets / top drains | per-reason cells | sort desc per flow_type, take `economy_top_n_reasons` (retroactive knob — pure re-rank) |
 | trusted-only variant of all above | `provenance = server` slice | identical computations |
 | segment slice | segment cells for one `(segment_dim, segment_value)` | identical computations |
@@ -286,6 +287,7 @@ The LWW domain is bounded by the seal: a sealed-day event stops at step 5 and ne
 | money-supply trend (day-over-day) | `ECONOMY_SUPPLY_DAY` rows (Q5) | plain select of `money_supply` / percentiles per day; optionally overlay query-time `SUM(net_flow) OVER (ORDER BY utc_day)` over `ECONOMY_FLOW_RESULT` — divergence between the two lines is diagnostic |
 
 - **Depth caveats (surfaced in the UI):** point-in-time and ≤ one flush window stale — `bal` is day-less, so Foundation §3.3's open-day Redis merge doesn't apply; the durable snapshot is read directly. Covers balance-reporting users only; advisory unless `provenance = server`; trusted-only money supply (Σ over rows whose *last* writer was server) is approximate when client events overwrite server-written balances. Percentiles are a per-currency scan — indie-scale fine; a bucketed histogram is the named scale lever.
+- **Dormant-holder undercount (clarified 2026-07-17).** `BALANCE_SNAPSHOT` is **upsert-latest and persistent** (day-less, never pruned) — so `money_supply = Σ last_known_balance` is a Σ over **every user who has *ever* reported a balance**, carried forward from their last balance event — **not** only users active in the snapshot window. This is the correct stock-over-all-known-holders definition; a user who stockpiled currency and went quiet still contributes their last-known balance. The residual undercount is confined to holders who *never once* emitted a `balance_after` (depth-off periods, or currencies a client never reports balances for) — surfaced by **`n_users`** (the balance-reporting holder count) on `ECONOMY_SUPPLY_DAY`, so coverage is visible, and by the **supply-vs-cumulative-flow divergence** diagnostic (Q5): a persistent gap between measured supply and `Σ net_flow` flags untracked/unreported holdings. The dashboard labels supply "over N balance-reporting holders," never as an unqualified total.
 - **Money-supply trend — RESOLVED (2026-07-17, Q5): ratify `ECONOMY_SUPPLY_DAY` as a daily balance-derived snapshot.** §2's health read ("rising money supply day-over-day") needs a supply-*level* history, which `BALANCE_SNAPSHOT` (upsert-latest) destroys every day — so it is **capture-it-or-lose-it** and earns its one-row-per-game×currency×day. **Snapshot the balance-derived level** (Σ `last_known_balance` + percentiles + `n_users`) at day-seal, gated on `economy_depth_capture_mode`; it is rebuildable in principle from the raw floor (replay `balance_after` LWW to any day boundary), days-while-depth-off unrecoverable (forward-only, same posture as depth). **Do NOT store cumulative sources−sinks** (the literal Q5 phrasing): that stays a query-time window function (`SUM(net_flow) OVER (ORDER BY utc_day)`) over `ECONOMY_FLOW_RESULT` — trivial at ~1000 day-rows — because cumulated flow is an index of change, not a level (it starts at zero at instrumentation start and absorbs every accepted residual). The read model overlays the two lines: **divergence between measured supply and cumulative-flow-implied supply is itself diagnostic** of untracked/spoofed/client-only flows (the EVE Online MER precedent, where the two diverged 9 % for three months). Capture-moment (at-seal reusing the seal sweep vs at-rollover) is a plan-time detail; at-seal is the lower-machinery option and matches the "as of seal" labeling. *Sources: EVE Online Monthly Economic Report (separate Money-Supply level vs Sinks/Faucets flow charts + `money_supply.csv`) · The Nosy Gamer Nov-2025 MER analysis (9 % flow-vs-level divergence) · Roblox economy dashboard ("Average wallet balance" level trend) · NetEase GDC 2020 inflation-monitoring (tracks stock alongside flows) · Postgres window-function running-total practice.*
 
 ### Relations with other stories

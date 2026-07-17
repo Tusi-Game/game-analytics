@@ -44,6 +44,8 @@ Operational registry/audit state only — see §Design ER. None of it is a metri
 This story's own knobs are minimal (it *administers* the others):
 - `operator_session_timeout_min` — idle logout for the admin session (default 120, mirroring npm's 2-hour session norm; SDK-independent).
 - `worker_config_cache_refresh_sec` — how often workers re-read the per-game config snapshot (default 30; the upper bound on config-change latency — §Design effective-time).
+- `operator_login_max_attempts` / `operator_lockout_min` — brute-force lockout (default 5 attempts → 15 min backoff).
+- `operator_mfa_required` — require TOTP MFA at login (default off; strongly recommended on — self-hostable, no external dependency).
 
 Both are platform-level (not per-game). Every *other* knob in the system is inventoried and administered here but **owned by its phase** — this story never redefines a knob's semantics, only surfaces it.
 
@@ -59,7 +61,7 @@ Both are platform-level (not per-game). Every *other* knob in the system is inve
 
 | Entity | Key | Non-key attributes | Cardinality | Notes |
 |---|---|---|---|---|
-| `OPERATOR_ACCOUNT` | `operator_id` | `email`, `password_hash` (or external-IdP subject), `role` (`admin` \| `viewer` v1), `created_at`, `disabled_at` | operator-staff count (tiny) | self-hosted single-tenant: these are the studio's staff, not players |
+| `OPERATOR_ACCOUNT` | `operator_id` | `email`, `password_hash` (or external-IdP subject), `mfa_totp_secret` (encrypted, if MFA on), `failed_login_count` + `locked_until` (lockout), `role` (`admin` \| `viewer` v1, **enforced** — viewer cannot write config/credentials), `created_at`, `disabled_at` | operator-staff count (tiny) | self-hosted single-tenant: these are the studio's staff, not players. One over-privileged account guards all games + infra secrets, so it is hardened (§ Account security) |
 | `GAME_SDK_KEY` | `game_id` FK, `key_id` | `key_prefix` (public, viewable), `key_hash`, `created_at`, `last_used_at`, `revoked_at` | ≥ 1 active per game (rotation of shipped builds needs ≥ 2 briefly) | the public client key (Q2); auto-issued at registration; **viewable in admin** because it is public by design |
 | `GAME_SERVER_CREDENTIAL` | `game_id` FK, `credential_id` | `credential_prefix`, `credential_hash`, `created_at`, `last_used_at`, `revoked_at` | **1..N** active per game | the secret server credential (Q2); **created on demand, shown once, stored hashed**; realizes Foundation §1.2's `GAME.server_credential` as a 1..N child |
 | `CONFIG_AUDIT` | `game_id` FK, `audit_id` | `operator_id` FK, `config_key`, `old_value`, `new_value`, `changed_at`, `effective_from` (processing-time watermark) | one row per config change (append-only) | the forward-only change trail; `effective_from` is what the read model uses to explain a dimension-era boundary |
@@ -125,16 +127,31 @@ Realizes Foundation §4.5's two credential classes as concrete admin flows. **Pr
 
 Out of v1 (flagged, precedented): per-environment (sandbox/live) key pairs, per-platform client keys, Stripe-style restricted server scopes, IP allowlists, optional HMAC body-signing as anti-abuse hardening — none alter the two-class model.
 
+### Account security (hardening — 2026-07-17)
+
+One operator account gates read of every game's data **and** write of every game's config + credentials **and** (via config) the infra secrets. Session-timeout alone is far below baseline for that privilege, so v1 adds: **login rate-limit + lockout** (`operator_login_max_attempts` / `operator_lockout_min`); **optional TOTP MFA** (`operator_mfa_required` — self-hostable, no external dependency, works under sanctions); **failed-login auditing** (a distinct audit stream from `CONFIG_AUDIT`); and an **enforced `viewer`/`admin` split** (the roles existed in the ER but enforcement was unspecified — a `viewer` session can read results but cannot write config or touch credentials). The admin dashboard is served behind the §9 reverse proxy and may be IP-allowlisted for the solo operator.
+
+### Infra-secret storage + rotation (hardening — 2026-07-17)
+
+Reversible infra secrets — `cold_storage_credentials` (S3 write keys), `fx_table` API material, the per-game `ERASURE_LEDGER` hash key, and any `mfa_totp_secret` — are **never stored plaintext in `GAME.config`**. They are envelope-encrypted with a **master key held outside Postgres** (env var / Docker secret / file mount), decrypted only in-worker (Foundation §1.2, 00.5 §9). A DB dump then yields ciphertext, not the operator's object-store keys — and the erasure-ledger key living outside the DB is what keeps the keyed hash lawful pseudonymization (00.5 §7.5 / §9). The admin surface adds an **infra-secret rotation path** (the existing credential-rotation flow covers game keys, not S3/FX secrets): re-encrypt under a new master key, or replace an S3 key and re-encrypt.
+
+### Right-of-access (DSAR / GDPR Art. 15 + Art. 20) — the symmetric surface
+
+The erasure trigger has a **read-only sibling**: an operator-verified **DSAR-access request** (same verification path as erasure) invokes the 00.5 §9 access job, which assembles a machine-readable export of the subject's spine family (`active_days_bitmap`, `PAYER_SPINE_EXT`, `PAYER_PERIOD_SPEND`, `PURCHASE_IDEMPOTENCY`, `IDENTITY_EDGE` if any) with the Art. 11 boundary documented (aggregate cells that no longer identify the subject are out of scope, and the export says so). Hosted here beside the erasure request surface; no new per-user durable state.
+
 ### Config administration + the effective-time rule
 
 **The admin API/UI covers every `§6` knob across the system.** Inventory (owner phase in parens — this story surfaces, never redefines):
 
 | Knob | Owner | Effect timing |
 |---|---|---|
-| `event_name_cap_per_game`, `property_key_cap_per_event`, `top_n_events` | 01 | forward-only (caps); `top_n_events` retroactive (pure re-rank) |
+| `event_name_cap_per_game`, `property_key_cap_per_event`, `top_n_events`, `pii_prop_denylist` (default-DENY), `pii_prop_value_scrubber`, `pii_prop_hash` | 01 | caps forward-only; `top_n_events` retroactive; PII denylist ships a **non-empty default** + value scrubber (00.5 §9) |
+| `economy_ratio_min_events` | 03 | display-only sink-ratio low-volume guard |
+| `operator_login_max_attempts`, `operator_lockout_min`, `operator_mfa_required`, `operator_session_timeout_min` | 10 | account hardening (§ Account security); platform-level |
 | `session_inactivity_timeout_min`, `session_max_duration_cap_min`, `session_min_duration_ms` | 02 | forward-only (never re-buckets emitted sessions) |
 | `economy_currency_allowlist`, `economy_depth_capture_mode`, `economy_top_n_reasons`, `level_bucket_boundaries` | 03 | allowlist/boundaries/depth forward-only; `economy_top_n_reasons` retroactive |
-| `retention_day_targets`, `per_game_reporting_timezone_offset` | 04 | targets forward-only (bitmap-horizon widening annotated "tracking begins …"); timezone offset **display-only** (never re-buckets — research §G-3) |
+| `retention_day_targets`, `retention_min_cohort_size` | 04 | targets forward-only (bitmap-horizon widening annotated "tracking begins …"); min-cohort-size is a display-only sample-size mask |
+| `reporting_offset` (**platform-level**, Foundation §4.7) | 00/platform | **correctness-bearing, set-once at install** — defines the platform logical day for **all** metrics + seals (single timezone; no per-game/multi-timezone in v1). Changing it after data exists is a forward-rebuild, out of v1 scope. Set to the operator's zone (e.g. Asia/Tehran +3:30) at install. |
 | `monetization_dimensions`, `payer_tier_rule`, `fx_table`, `fx_staleness_max_days`, `monetization_dimension_value_cap` | 05 | `monetization_dimensions` + `…_value_cap` rebuild-forward; `fx_table`/`fx_staleness_max_days` affect unsealed re-normalization only; `payer_tier_rule` re-tiers **future reads** at zero migration (spine stores spend, not tier — Q3) |
 | `mau_window_days`, `whale_min_payers` | 06 | read-time windows — retroactive (recomputed at read) |
 | `cold_storage_enabled`, `cold_storage_bucket`, `cold_storage_credentials`, `cold_storage_local_retention_days`, `cold_storage_upload_schedule`, `raw_file_compression` | 07 | all forward-only (toggle/codec never rewrite existing files) |

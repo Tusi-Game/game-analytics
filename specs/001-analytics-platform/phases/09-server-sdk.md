@@ -36,8 +36,9 @@
 
 | Field | Supplied by | Note |
 |---|---|---|
-| `transaction_id` | caller (store-issued) | durable dedup + companion-join key |
+| `transaction_id` | caller (store-issued) | durable **money** dedup + audit key |
 | `original_transaction_id` | caller (store-issued) | stable across renewal/restore |
+| `purchase_attempt_id` | caller (relayed from the client via `appAccountToken`/`obfuscatedAccountId`) | the **context-join** key to the client companion (08 §3.2) — optional but required for segmented dimensions; absent ⇒ the purchase stands with reduced dims |
 | `product_id`, `product_category` | caller | the SKU + coarse category |
 | `price_local`, `currency` | caller | raw charged amount + ISO currency; **never normalized by the SDK** (Q8) |
 | `source` | **SDK-stamped** `server` | selects the 05 sub-contract; honored only under the server credential (Foundation §4.5) — under any other credential class the platform treats the mismatch as a validation failure |
@@ -112,7 +113,7 @@ flowchart LR
 ```
 
 - **Envelope builder** is the conformance chokepoint: one place constructs every envelope, so "never a top-level field outside Foundation §1.1" is enforced structurally, not by review.
-- **Transport** is plain bearer over TLS (Foundation §4.5 — no HMAC in v1) against `{endpoint}/v1/events`. *Consistency note:* 01's Design phrases the ingest path as `/ingest/{game_id}`; the later Q9 lock pins `/v1/events` with game scope derived from the credential — this spec follows Q9 and flags the 01 phrasing as superseded, not re-derived.
+- **Transport** is plain bearer over TLS (Foundation §4.5 — no HMAC on the client `sdk_key` path in v1; optional HMAC on this server-credential path is a documented hardening option, 00.5 §8 / phase 10) against `{endpoint}/v1/events`. *Consistency note (RESOLVED 2026-07-17):* 01's Design body uses the Q9-pinned `/v1/events` with game scope derived from the credential; the earlier `/ingest/{game_id}` phrasing survived only in 01's story prose and `spec.md`, now reconciled. This spec and 01 agree.
 - **Runtime posture:** minimal dependency surface (a money-path package is a supply-chain target); no native modules; no global state — multiple clients (e.g. two games' credentials in one backend) coexist.
 
 ### Packaging & distribution (Q10, locked)

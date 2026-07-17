@@ -29,7 +29,7 @@
 
 ## 2. How it is calculated
 
-All bucketing is **UTC day**; WAU = trailing 7, MAU = trailing 30; headline grain is whole-game. All money is normalized, prod + verified only.
+All bucketing is the platform **logical day** (Foundation §4.7 — `utc_day(corrected + reporting_offset)`, single platform timezone; every "UTC day" below reads as the logical day); WAU = trailing 7, MAU = trailing 30; headline grain is whole-game. All money is normalized, prod + verified only.
 
 ```
 DAU(d)          = |{ user_id : a session STARTED on UTC day d }|
@@ -152,7 +152,7 @@ Reuse first; add only the minimum:
 
 | Entity | Key | Attributes (logical) | Cardinality / bound | Nature |
 |---|---|---|---|---|
-| `PAYER_SPINE_EXT` | (`game_id`, `user_id`) | `first_purchase_day` — **write-once** UTC day of the payer's first-ever verified prod purchase | ≤ 1 row per user, exists **iff ever paid** (payers ≪ users) | **Spine touch** — the tier-2 payer extension (Foundation §1.3); mirrors the retention set-once bit |
+| `PAYER_SPINE_EXT` | (`game_id`, `user_id`) | `first_purchase_day` — **write-once** logical day of the payer's first-ever verified prod purchase; `lifetime_spend_normalized` — monotonic cumulative converted spend (Q3); `has_unconverted_spend` — **bool** flag set when a parked (`fx_unconverted`) purchase commits, cleared when it later converts pre-seal (05 step 7 — the whale-mis-tier abstention: while true, `payer_tier` reads `indeterminate`, never a deflated `minnow`) | ≤ 1 row per user, exists **iff ever paid** (payers ≪ users) | **Spine touch** — the tier-2 payer extension (Foundation §1.3); mirrors the retention set-once bit |
 | `PAYER_PERIOD_SPEND` | (`game_id`, `period`, `user_id`) | `spend_normalized` — cumulative verified-prod spend, normalized under 05's FX rule (§D-2, stamped at purchase date) | one row per payer × period **with ≥ 1 purchase in that period** ≈ payers × active periods (thousands/period at indie scale, never user-bounded) | Formally tier-2 spine; **in kind a result** — a rebuildable **projection of `PURCHASE_IDEMPOTENCY`** (+ dated FX config), exactly as `PAYER_DAY` is (Foundation §1.3) |
 
 **`period` semantics (v1, locked here):** `period` = **UTC calendar month** (`YYYY-MM`). Chosen over a trailing window because trailing whale windows would force payer×**day** spend grain (~30× the rows — the WC-1 containment this story rejects); calendar month is the coarsest grain that preserves the full distribution. A period's rows are **mutable while any of its days is unsealed** and freeze at `period_end + 48 h` — purely a consequence of the day-seal (Foundation §4.3) sitting upstream of every write; **no period-level seal machinery exists**. The current month is provisional by construction; sealed months are immutable.
@@ -197,7 +197,7 @@ Layouts, TTLs, and rehydrate-on-miss for these are their owners' concerns; 06 tr
 On each accepted purchase (corrected day `d`, month `M(d)`), appended to step 7:
 
 1. **`PAYER_SPINE_EXT.first_purchase_day` write-once** — insert-if-absent with `d` (idempotent absolute, mirrors the §B set-once bit). Never backdated: a purchase for a sealed day was quarantined at step 5 and never reaches this write.
-2. **`PAYER_SPINE_EXT.lifetime_spend_normalized += normalized_amount`** (Q3, ratified 2026-07-17) — the payer-tier source read pre-purchase by 05 against `payer_tier_rule` fixed thresholds; monotonic non-decreasing; a 0/parked `normalized_amount` (missing FX rate, Q8) adds nothing.
+2. **`PAYER_SPINE_EXT.lifetime_spend_normalized += normalized_amount`** (Q3, ratified 2026-07-17) — the payer-tier source read pre-purchase by 05 against `payer_tier_rule` fixed thresholds; monotonic non-decreasing; a 0/parked `normalized_amount` (missing FX rate, Q8) adds nothing **and sets `has_unconverted_spend = true`** (the whale-mis-tier abstention, 05 step 7) — so the tier reads `indeterminate` rather than a deflated value until the parked amount converts (the unsealed FX recompute then adds it and clears the flag). Never let a parked (unknown-value) purchase read as $0 through the fixed-dollar tier gate.
 3. **`PAYER_PERIOD_SPEND[game, M(d), user] += normalized_amount`** — the three writes above are bound into the **same atomic unit as the step-6 gate insert**: gate row + first-purchase write + lifetime-spend add + period-spend add commit together or not at all.
 
 **Idempotency argument.** Duplicate purchases cannot double-add spend because the `transaction_id` gate sits **upstream**: a duplicate stops at step 6 and step 7 never runs. A worker crash mid-purchase either re-runs the whole atomic unit (nothing committed) or no-ops at the gate (everything committed) — so the spend add is **exactly-once**, deliberately stronger than step 7's "idempotent absolute" letter, which a cumulative money distribution requires (an increment is not intrinsically idempotent; the gate makes it so). **Spine-independence (Q1, 2026-07-17):** the payer family keys `(game_id, user_id)` as a logical association — it does **not** require a `USER_SPINE` row to exist first (a purchase-before-first-session, or a never-sessioned payer, is valid; `first_seen` is seeded only by 02's session path, so it may be absent or later than `first_purchase_day`). The old "front-door `first_seen` precedes" ordering claim is retired; only `PAYER_SPINE_EXT → PAYER_PERIOD_SPEND` existence order matters, and it holds within the atomic unit.
@@ -230,7 +230,7 @@ FirstConv(P)   = |{first_purchase_day ∈ P}| ÷ configured denominator
 | ARPDAU(d) | day revenue ÷ DAU(d) | 1 UTC day | the only sanctioned day-numerator ratio; today provisional |
 | Conversion(P) | payer-union ÷ active-union | paired | N/A when DAU = 0 |
 | First-purchase conv(P) | count `PAYER_SPINE_EXT.first_purchase_day ∈ P` ÷ denominator | paired | denominator = `arppu_first_purchase_denominator` |
-| WhaleShare(X, M) | `PAYER_PERIOD_SPEND[M]` rank + top-X% sum ÷ Revenue(M) | **calendar month** (current month provisional) | **`low_confidence` flag** when `PayingUsers(M) < whale_min_payers` (default 20) — still computed, never hidden; N/A at 0 payers; X retroactive (full distribution retained) |
+| WhaleShare(X, M) | `PAYER_PERIOD_SPEND[M]` rank + top-X% sum ÷ Revenue(M) | **calendar month** (current month provisional) | **`low_confidence` flag** when `PayingUsers(M) < whale_min_payers` (default 20) — still computed, never hidden; N/A at 0 payers; X retroactive (full distribution retained). Payers with `has_unconverted_spend` (tier `indeterminate`) are surfaced as their own line and **never folded into `minnow`** — their rank position uses their lower-bound spend, flagged as a floor (05 whale-mis-tier fix). |
 | New / Returning(d) | `ACTIVE_USER_DAY(d)` ∩ `USER_SPINE.first_seen` (= d / < d) | 1 UTC day | disjoint, sums to DAU |
 
 Calendar-month MAU is a **display-only reprojection** of the same daily sets (DK-1) — never the internal grain. Division-by-zero anywhere renders **N/A, never 0** (§2). Every money figure in this table is server-sourced verified prod only; every active denominator is client-session-sourced (§3 trust boundary) — the read-model has no path that mixes them differently.

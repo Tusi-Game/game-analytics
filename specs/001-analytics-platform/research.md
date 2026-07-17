@@ -188,7 +188,7 @@ Resolving §B–§H exposed second-order questions the spec did not previously a
 - **§E-1 — Live-counter TTL [LEANING]**: what TTL on Redis hot counters? *Default: expire at end-of-UTC-day, aligned to the daily bucket + raw-file rotation.*
 - **§E-2 — Dashboard live-vs-historical seam [OPEN]**: does the UI read today's number as Redis-live and past days as Postgres-historical, or stitch them — and does it label "last ~5 min may be provisional"? *Recommendation: today = Redis-live, sealed days = Postgres; small "provisional" note on today.*
 - **§E-3 — Raw-file append durability [LEANING]**: is the raw-file append fsync'd per batch or OS-buffered? Buffered weakens the "durability floor" to ~page-cache. *Default: fsync per batch (the floor SC-008 relies on); revisit if it costs throughput.*
-- **§E-4 — Flush reads absolute value [LEANING]**: confirm the flush re-reads the current Redis *absolute* counter and upserts it (not a consumed delta), so a crash mid-flush is safe on retry. *Default: absolute-read + absolute-upsert.*
+- **§E-4 — Flush reads absolute value [RESOLVED 2026-07-17, hardening pass]**: absolute-read confirmed, **and the blind `SET value = EXCLUDED.value` upsert is retired** — an adversarial review found it unsafe under a torn `HGETALL` racing concurrent `HINCRBY`, and after a crash+rehydrate it could clobber durable results *downward*. Replaced by a **per-class merge rule** (Foundation §3.2.1): monotonic-max (`GREATEST`) for additive counters/sums (class M), set-union for membership (class S), generation-gated atomic Lua-snapshot for mutable-down monetization/FX cells (class N — `GREATEST` would double-count the enrichment MOVE), and the existing `as_of` LWW guard for balances (class L). Rehydrate uses `HSETNX` (no double-seed) + a `seeded` marker (no half-seeded flush). Every class is a no-op on retry.
 
 ### From §F (dedup)
 - **§F-1 — Dedup-window clock [LEANING]**: is the 24h TTL measured from **server-receive-time** (simple, immune to client skew) or client-event-time? *Default: server-receive-time, so §G clock skew can't shrink/extend the window.*
@@ -199,7 +199,7 @@ Resolving §B–§H exposed second-order questions the spec did not previously a
 ### From §G (bucketing)
 - **§G-1 — Future-dated single events [LEANING]**: a fast client clock on an immediately-sent single event has no batch skew to correct against. *Default: clamp to server-now; explicit rule in the SDK contract.*
 - **§G-2 — DST & per-game reporting timezone [OPEN]**: if per-game display timezone is added, day boundaries shift twice a year — retention Day-N math must stay UTC internally, offset only at display. *Recommendation: UTC internal always; per-game offset display-only; document DST behaviour.*
-- **§G-3 — Changing a game's timezone after data exists [OPEN]**: would re-bucket history and break the §B immutability guarantee. *Recommendation: reporting-offset changes are display-only and never re-bucket stored aggregates; a true timezone change requires a rebuild-forward like monetization dimensions.*
+- **§G-3 — Changing a game's timezone after data exists [RESOLVED 2026-07-17, hardening pass]**: superseded by the platform **logical day** (Foundation §4.7). The reporting offset is now *correctness-bearing* (it defines the day floor for all metrics + seals), **set-once at install** — changing it after data exists is a forward-rebuild (out of v1 scope), exactly the immutability-preserving posture this question sought. It is no longer "display-only"; the single-timezone distortion §G-2 hinted at is the reason.
 - **§G-4 — SDK stamps `client_sent_time` on single-event sends [LEANING]**: skew correction needs it even on immediate one-event batches. *Default: SDK always stamps `client_sent_time`.*
 
 ### From §H (schema)
@@ -284,3 +284,32 @@ The design layer's operator-ratification questions (`phases/README.md` list, plu
 - **Decision**: platform (ingest/workers/dashboard) = **Apache-2.0** (patent grant + no separate CLA); SDK packages = **MIT** per-package override (embeddable, GPL-2.0-compatible, adoption norm). npm: **trusted publishing (OIDC) from GitHub Actions** (no `NPM_TOKEN`), automatic **provenance attestations**, `publishConfig.access=public` on scoped packages, **changesets** release flow, 2FA on accounts. Home: SDK specs 08/09 packaging sections.
 - **Why**: a platform/SDK license split is the dominant peer pattern (Plausible AGPL/MIT tracker, Matomo GPL/BSD tracker, Sentry FSL/MIT SDKs, Aptabase AGPL/MIT SDKs — 6 of 8 peers split; **no peer puts copyleft or Apache-2.0 on an embeddable SDK**). Apache-2.0 gives the express patent grant enterprises want; MIT SDKs maximize embed-adoption and stay GPL-2.0-compatible (Sentry's stated reason). Trusted publishing is GA since 2025-07-31 and the 2025 token crackdown makes token-CI actively painful.
 - **Sources**: Sentry licensing · Plausible/Matomo/PostHog/Countly/OpenReplay/Aptabase repos + license docs · choosealicense/FOSSA Apache-2.0 patent-grant · npm trusted-publishing + provenance docs · GitHub Changelog (OIDC GA; token revocation) · Changesets.
+
+---
+
+## 8. Adversarial Hardening Pass (2026-07-17 — post-design review)
+
+After Q1–Q10 locked the design layer, a multi-agent **adversarial review** (four parallel research agents — streaming/ingestion, metric-correctness, client/server SDK, security/ops/GDPR — each sourced against industry practice + papers, plus an internal-consistency audit) surfaced ~35 findings the design missed. Two hard problems were resolved by dedicated design agents. The decision records live in the phase specs; this is the research trail.
+
+### Root causes (two, cross-cutting)
+- **UTC-as-correctness, not display.** For a single-timezone player base (the operator, GMT+3:30), bucketing every metric on the UTC day systematically misattributes the local 00:00→offset band to the previous UTC day — devtodev measured D1 shifting 4–5 pp on a ~30% base (13–17% relative), one-directional (does not average out). Resolution: a **platform logical day** (Foundation §4.7), `logical_day(t)=utc_day(t+reporting_offset)`, single timezone set-once at install, applied to all metrics + seals. Option B (24h-from-install) was verified results-only-safe but rejected (changes the locked classic-Day-N definition, fixes only retention). *Sources: devtodev calendar-vs-hours; Amplitude retention time.*
+- **NULL/missing treated as zero.** Drove the FX-parked whale mis-tier (a $480 whale reading "minnow" when purchases were unconvertible), the empty-denominator sink-ratio, and the dormant-holder money-supply undercount. Resolution: abstain-not-deflate (`has_unconverted_spend` → tier `indeterminate`), N/A + low-volume guards, coverage-% labeling.
+
+### Data-corruption / durability
+- **Flush torn-read + downward clobber → per-class flush policy** (Foundation §3.2.1; closes §E-4). Blind `SET=EXCLUDED` retired for M/N/S/L classes. *Sources: Redis Lua atomicity / race-condition docs; lost-update / write-behind-cache references.*
+- **No Postgres backup/DR** (the "must not lose" invariant had no mechanism; raw S3 files are not a DB backup) → mandated PITR (pgbackrest/barman) to the S3 target, tested restore, RPO/RTO (00.5 §8). *Sources: GitLab 2017 DB-outage postmortem; PostgreSQL DR guides.*
+- **Server NTP step corrupts skew + seal boundary** → mandatory slewing NTP + sanity clamp + monotonicity alarm (Foundation §4.2). *Sources: Cloudflare leap-second outage; monotonic-clock references.*
+- **gzip-append truncation / multi-member silent-drop** → length-prefixed framed members, multi-member-safe rebuild, seal-time decode-verify (bridge 01.5 §4).
+- **BullMQ stalled-job double-count** (crash between raw-append and dedup-claim) → claim the dedup marker in the same recovery unit before any counter (Foundation §3.1 step 6).
+
+### Feature-breaking / metric bias
+- **transaction_id client↔server join silently fails** (StoreKit/Play id semantics + async availability) — would empty every segmented-monetization dimension in production → client mints `purchase_attempt_id`, threads it through the store call (`appAccountToken`/`obfuscatedAccountId`), server relays it on the revenue row; join on it (08/09/05). *Sources: StoreKit 2 originalID / Ask-to-Buy .pending; Play purchaseToken vs orderId.*
+- **Session-end lost on tab close** inflates every session duration → sendBeacon on visibilitychange/pagehide, reconcile backstop, timeout-as-boundary-not-fabricated-end (02/08). *Sources: sendBeacon reliability benchmarks; MDN.*
+- **Small-cohort + survivorship + Simpson's** retention/monetization biases → min-cohort mask, fixed-mature-set averaging, unknown-share Simpson warning (04/05/06). *Sources: MeasuringU small-n; retention-led-growth survivor bias; analytics-toolkit Simpson.*
+- **HLL lever contradicted "never HLL for retention"** → lever scoped count-only, forbidden for membership-bearing reads (Foundation §9.2).
+
+### Security / privacy completeness (00.5 §9, phase 10)
+- Reversible secrets plaintext in Postgres → envelope-encrypt with out-of-DB master key (also makes the erasure-ledger keyed hash lawful). TLS assumed→normative (+ Iran ACME/DNS-01 guidance). Public-key data-poisoning → client-provenance metrics labeled best-effort + Origin check + graceful rate-cap. Operator account → lockout + MFA + enforced viewer/admin. PII default-allow→default-deny + value scrubber. GDPR Art.15/20 access built (was erasure-only). Docker supply chain under sanctions → digest-pinned images + offline bundle. *Sources: PostgreSQL encryption docs; ICO put-beyond-use; GA4/PostHog public-key abuse; IAPP Art.11; LE Iran cert threads; npm provenance-not-sufficient (Shai-Hulud/TanStack).*
+
+### Residual v1 defers (documented, non-blocking)
+Full anon↔user merge (edge now captured); automated raw-rebuild tool (procedure specified, 01.5 §5.1); Redis HA replica+Sentinel (single-Redis availability SPOF named, 00.5 §8); DST-aware multi-timezone (single fixed offset assumed); refunds net-revenue (gross-only + hook).
