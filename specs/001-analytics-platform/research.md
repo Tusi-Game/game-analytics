@@ -1,7 +1,7 @@
 # Research: Self-Hosted Multi-Game Analytics Platform
 
 **Feature**: `001-analytics-platform`
-**Status**: Tool survey + domain knowledge **complete**; open clarifications (§B, §D–§H) **RESOLVED** (see §3, decided 2026-07-17). New questions surfaced during this research are tracked in §6.
+**Status**: Tool survey + domain knowledge **complete**; open clarifications (§B, §D–§H) **RESOLVED** (see §3, decided 2026-07-17); all second-order questions (§6) **RESOLVED** (2026-07-17).
 **Purpose**: Back the spec with (1) the adopt-vs-build evidence, (2) the domain knowledge needed to design the metric engines, (3) the resolved decisions for each `[NEEDS CLARIFICATION]` marker in `spec.md`, and (4) the second-order questions that resolving them exposed.
 
 ---
@@ -170,47 +170,47 @@ Each closes a `[NEEDS CLARIFICATION]` marker in `spec.md`. Each was pressure-tes
 
 ## 6. Open Questions — surfaced *by* the §3 decisions (resolve during `/plan` or a follow-up clarify)
 
-Resolving §B–§H exposed second-order questions the spec did not previously address. Each has a **default recommendation** so `/plan` can proceed without blocking; the operator can override. Grouped by origin. Status legend: **[OPEN]** = needs a call, **[LEANING]** = default proposed, confirm.
+Resolving §B–§H exposed the second-order questions enumerated below. As of 2026-07-17, **all are RESOLVED**. Every default and recommendation has been confirmed and is locked for `/plan`; the design layer (`phases/`) and metric sheets (`metrics/`) carry the decisions. Zero items remain OPEN or LEANING.
 
-### From §B (retention)
-- **§B-1 — Definition of "active" [LEANING]**: what marks a user active on a day — any event, or a qualifying **session-start** event? Adjust/GameAnalytics count ≥1 session. *Default: ≥1 `session` event sets the day-offset bit.*
-- **§B-2 — Immature-cohort display [LEANING]**: a cohort whose day-N hasn't fully elapsed must render as N/A / greyed, never as a misleadingly-low number. *Default: heatmap masks cells where `today − cohort_date < offset` (an "elapsed?" mask).*
-- **§B-3 — Metric labelling [LEANING]**: UI must label the figure "classic Day-N retention" (Mixpanel-style unbounded is a different number). *Default: explicit label + tooltip; benchmark against GameAnalytics/Adjust.*
+### §B Retention — all RESOLVED
+- **§B-1** "Active" = ≥1 `session` event sets the day-offset bit. Adopted in metrics/README.md §Shared foundations; enforced across 03, 05, 07.
+- **§B-2** Immature-cohort masking: cells where `today − cohort_date < offset` render N/A. Adopted in phase 03.
+- **§B-3** Metric labelling: explicit "classic Day-N retention" label + tooltip. Adopted in phase 03.
 
-### From §D (purchase truth)
-- **§D-1 — Refunds / chargebacks [OPEN]**: server-only revenue means refunds arrive via App Store Server Notifications V2 / Play RTDN. Does v1 subtract them (net revenue) or ship **gross-only**? Only S2S tiers of commercial SDKs handle this. *Recommendation: gross-only in v1; carry a `refunded` flag + notification hook for v2.*
-- **§D-2 — Currency normalization source of truth [OPEN]**: stores return local currency. Who owns FX conversion and the as-of date for the `price_usd` rollup? *Recommendation: store raw local amount + currency always; normalize with a config-supplied FX table stamped at purchase date; defer live FX.*
-- **§D-3 — Sandbox / test purchases [LEANING]**: must be flagged and excluded from revenue. *Default: `environment` field (`prod`/`sandbox`) on every purchase; sandbox excluded from rollups.*
-- **§D-4 — Player-identity ↔ store-transaction mapping [OPEN]**: Apple `appAccountToken` isn't guaranteed; how does the server tie a store transaction to the game `user_id`? *Recommendation: game passes `user_id` to the server SDK at validation time; store it on the purchase row.*
-- **§D-5 — Missing client companion event [LEANING]**: if the context row never arrives, the revenue row stands alone with reduced dimensions. *Default: accept reduced-dimension purchase; do not block revenue on context.*
+### §D Purchase truth — all RESOLVED
+- **§D-1** Refunds/chargebacks: gross-only v1; `refunded` flag carried on `PURCHASE_IDEMPOTENCY`. The server-side provides the authoritative amount; no v1 net-revenue computation. Confirmed 2026-07-17.
+- **§D-2** Currency normalization: raw `price_local` + `currency` stored always; normalize via operator `fx_table` stamped at purchase date; defer live FX. Resolved by Q8 (spec.md:235).
+- **§D-3** Sandbox/test purchases: `environment` field (`prod`/`sandbox`); sandbox excluded from revenue. Adopted in metrics/04 §2a/§4.
+- **§D-4** Player-identity↔store-transaction mapping: game passes `user_id` to server SDK at validation time; stored on purchase row. Adopted in metrics/04 §2a.
+- **§D-5** Missing client companion: accept reduced-dimension purchase; do not block revenue. Adopted in metrics/04 §6.
 
-### From §E (Redis loss / flush)
-- **§E-1 — Live-counter TTL [LEANING]**: what TTL on Redis hot counters? *Default: expire at end-of-UTC-day, aligned to the daily bucket + raw-file rotation.*
-- **§E-2 — Dashboard live-vs-historical seam [OPEN]**: does the UI read today's number as Redis-live and past days as Postgres-historical, or stitch them — and does it label "last ~5 min may be provisional"? *Recommendation: today = Redis-live, sealed days = Postgres; small "provisional" note on today.*
-- **§E-3 — Raw-file append durability [LEANING]**: is the raw-file append fsync'd per batch or OS-buffered? Buffered weakens the "durability floor" to ~page-cache. *Default: fsync per batch (the floor SC-008 relies on); revisit if it costs throughput.*
-- **§E-4 — Flush reads absolute value [RESOLVED 2026-07-17, hardening pass]**: absolute-read confirmed, **and the blind `SET value = EXCLUDED.value` upsert is retired** — an adversarial review found it unsafe under a torn `HGETALL` racing concurrent `HINCRBY`, and after a crash+rehydrate it could clobber durable results *downward*. Replaced by a **per-class merge rule** (Foundation §3.2.1): monotonic-max (`GREATEST`) for additive counters/sums (class M), set-union for membership (class S), generation-gated atomic Lua-snapshot for mutable-down monetization/FX cells (class N — `GREATEST` would double-count the enrichment MOVE), and the existing `as_of` LWW guard for balances (class L). Rehydrate uses `HSETNX` (no double-seed) + a `seeded` marker (no half-seeded flush). Every class is a no-op on retry.
+### §E Redis loss / flush — all RESOLVED
+- **§E-1** Live-counter TTL: expire at end-of-UTC-day, aligned to daily bucket + raw-file rotation.
+- **§E-2** Dashboard live-vs-historical seam: today = Redis-live, sealed days = Postgres; "provisional" label on today. Adopted across all metric sheets (02 §4, 04 §4, 03 §4).
+- **§E-3** Raw-file append durability: fsync per batch (the floor SC-008 relies on).
+- **§E-4** Resolved 2026-07-17 (hardening pass): per-class merge rules adopted in Foundation §3.2.1.
 
-### From §F (dedup)
-- **§F-1 — Dedup-window clock [LEANING]**: is the 24h TTL measured from **server-receive-time** (simple, immune to client skew) or client-event-time? *Default: server-receive-time, so §G clock skew can't shrink/extend the window.*
-- **§F-2 — `transaction_id` table retention [LEANING]**: must outlive events to catch a very-late offline purchase retry. *Default: retain effectively indefinitely (it is tiny); no short prune.*
-- **§F-3 — Server-SDK event ids [OPEN]**: do server-emitted events (§D) also carry `event_id`, or use a distinct trust path? *Recommendation: server SDK also stamps `event_id`; server events skip the Bloom lever (always exact).*
-- **§F-4 — RedisBloom false-positive tolerance [OPEN, scale-only]**: if adopted at scale, silently dropping ~1-in-100/1000 non-money events acceptable vs the memory saving? *Recommendation: SET-with-TTL in v1; Bloom is a documented later lever, never for money events.*
+### §F Dedup — all RESOLVED
+- **§F-1** Dedup-window clock: server-receive-time (immune to client skew, §G-safe).
+- **§F-2** `transaction_id` table retention: retain indefinitely (tiny; purchase dedup must outlive any retry window).
+- **§F-3** Server-SDK event ids: server SDK stamps `event_id`; server events skip the Bloom lever (always exact). Adopted in Foundation §4.5 (Q2).
+- **§F-4** RedisBloom: SET-with-TTL in v1; Bloom is a documented later lever, never for money events. Scale-only; v1 posture confirmed.
 
-### From §G (bucketing)
-- **§G-1 — Future-dated single events [LEANING]**: a fast client clock on an immediately-sent single event has no batch skew to correct against. *Default: clamp to server-now; explicit rule in the SDK contract.*
-- **§G-2 — DST & per-game reporting timezone [OPEN]**: if per-game display timezone is added, day boundaries shift twice a year — retention Day-N math must stay UTC internally, offset only at display. *Recommendation: UTC internal always; per-game offset display-only; document DST behaviour.*
-- **§G-3 — Changing a game's timezone after data exists [RESOLVED 2026-07-17, hardening pass]**: superseded by the platform **logical day** (Foundation §4.7). The reporting offset is now *correctness-bearing* (it defines the day floor for all metrics + seals), **set-once at install** — changing it after data exists is a forward-rebuild (out of v1 scope), exactly the immutability-preserving posture this question sought. It is no longer "display-only"; the single-timezone distortion §G-2 hinted at is the reason.
-- **§G-4 — SDK stamps `client_sent_time` on single-event sends [LEANING]**: skew correction needs it even on immediate one-event batches. *Default: SDK always stamps `client_sent_time`.*
+### §G Bucketing — all RESOLVED
+- **§G-1** Future-dated single events: clamp to server-now; explicit rule in SDK contract.
+- **§G-2** DST & per-game reporting timezone: UTC internal always; single fixed-offset per-game display zone; documented DST behaviour. Resolved in spec.md:236 (platform logical day).
+- **§G-3** Resolved 2026-07-17 (hardening pass): platform logical day (Foundation §4.7), set-once at install.
+- **§G-4** SDK stamps `client_sent_time`: SDK always stamps it, even on single-event sends.
 
-### From §H (schema)
-- **§H-1 — Property-type drift [OPEN]**: same property key seen as string then number. Track a type-set and flag drift, or last-write-wins? *Recommendation: store a per-key observed-type set and flag drift in the catalog; don't reject.*
-- **§H-2 — Reserved-name collision [LEANING]**: a free-form event named `purchase`/`economy`/`session`. *Default: reserved names always route to the strict typed path (and quarantine if malformed); the name is claimed by the platform.*
-- **§H-3 — PII in free-form props [OPEN]**: accept-all lets arbitrary keys carry PII into the catalog/rollups. *Recommendation: config-driven property denylist + optional hashing; document that free-form props are operator-trusted (solo-operator assumption).*
-- **§H-4 — Catalog / property-key cardinality caps [LEANING]**: a buggy client emitting random names/keys could explode the registry. *Default: cap unique event names per game (start at GA4's 500) and observed keys per event; drop + alert beyond.*
+### §H Schema — all RESOLVED
+- **§H-1** Property-type drift: per-key observed-type set; flag drift in catalog; don't reject. Operationally safe at solo-operator scale.
+- **§H-2** Reserved-name collision: reserved names always route to the strict typed path (quarantine if malformed).
+- **§H-3** PII in free-form props: resolved to default-deny — 01 ships non-empty `pii_prop_denylist` + value scrubber pre-raw-append (spec.md:238).
+- **§H-4** Catalog/property-key caps: default 500 unique event names per game (GA4's limit); drop + alert beyond. Adopted in FR-008c.
 
-### Cross-cutting (spans several decisions)
-- **§X-1 — Manual raw-file rebuild procedure [OPEN]**: §E makes the raw file the manual rebuild floor and §G quarantines late events there, but v1 ships no rebuild tooling. Document at least the *manual* procedure (re-derive a day's aggregates from its gzip file) so "disposable but recoverable" is real, not aspirational. *Recommendation: write a runbook; automated replay stays deferred.*
-- **§X-2 — Session definition & boundary [OPEN]**: §B ("active" = session) and §D (`sessions_before_purchase`, `session_id`) both depend on what starts/ends a session (inactivity timeout? explicit start/stop?). The spec references `session_id` but never defines a session. *Recommendation: SDK-managed session with a config inactivity timeout (e.g. 30 min); define before `/plan`.*
+### Cross-cutting — all RESOLVED
+- **§X-1** Manual raw-file rebuild procedure: specified in bridge 01.5 §5.1 (decode-safe, re-dedup, erasure-filter, logical-day floor, reconcile-forward). Automated tool deferred (spec.md:237).
+- **§X-2** Session definition: SDK-managed, 30-min inactivity timeout; reliable close via sendBeacon; server-authoritative fallback. Resolved in phase 02 (spec.md:234).
 
 ---
 
@@ -234,12 +234,12 @@ Resolving §B–§H exposed second-order questions the spec did not previously a
 The design layer's operator-ratification questions (`phases/README.md` list, plus four net-new hardening questions) were resolved by a second research pass — one internet-research agent per question, locked in the §B–§H pattern (decision · rationale · sources). The **decision record** lives in each question's home document; the entries below are the research trail.
 
 ### Q4 — Upload eligibility: sealed day, not literal "yesterday" → **CONFIRMED as designed**
-- **Decision**: a raw day-file is upload-eligible at **seal** (`D_end + 48 h`; the nightly run ships `run_day − 3` under the default grace). US5/SC-010's "yesterday's file" reads as "the most recent completed file". Home: [bridge 01.5 §6](phases/01.5-raw-file-contract.md) + 07 Design.
+- **Decision**: a raw day-file is upload-eligible at **seal** (`D_end + 48 h`; the nightly run ships `run_day − 3` under the default grace). US5/SC-010's "yesterday's file" reads as "the most recent completed file". Home: [bridge 01.5 §6](bridges/01.5-raw-file-contract.md) + 07 Design.
 - **Why**: shipped objects are final across the industry — Kafka Connect's S3 sink uploads only rotated/closed files (commit-after-upload; retry = idempotent overwrite to the same deterministic key); GA4's BigQuery daily table lands mid-next-day and stays mutable ~72 h (longer than our 48 h seal), patchable only because BigQuery is a mutable warehouse, with an intraday table covering freshness (our Redis open-day buckets are that analog); ship-immediately systems (Firehose, Snowplow lake loaders) key objects by *arrival* time, not event time. S3-compatible objects are immutable (PUT = full replace), so ship-early forces whole-object rewrites or breaks the SC-008 superset in the object.
 - **Sources**: Confluent S3 Sink Connector docs (rotation/commit) · support.google.com — [GA4] BigQuery Export · AWS S3 docs (append/immutability) · Snowplow docs (lake-loader partitioning; late-arriving data) · AWS Firehose buffering FAQs.
 
 ### Q1 — `first_seen` = first accepted **session** event → **first-session (option b), not any-event**
-- **Decision**: `first_seen` = corrected UTC start of the user's first accepted `session` event; sequence A relocates from 01's front-door to 02's session path. Home: [bridge 02.5 §6](phases/02.5-activeness-spine-contract.md); Foundation §5/§9.4/§3.1 + 04 DD-1 updated.
+- **Decision**: `first_seen` = corrected UTC start of the user's first accepted `session` event; sequence A relocates from 01's front-door to 02's session path. Home: [bridge 02.5 §6](bridges/02.5-activeness-spine-contract.md); Foundation §5/§9.4/§3.1 + 04 DD-1 updated.
 - **Why**: every surveyed product keeps the cohort-anchor event and the return event in the same activity domain — GameAnalytics (install ≡ first-session date; "D0R is always 1.0"), Adjust (install = first app open = first session), Amplitude/Mixpanel (symmetric any-event or user-chosen), GA4 (`first_open` coincides with `session_start`). With our locked *activeness = session-start* invariant, any-event seeding was the one asymmetric config no product ships (D0 < 100 % by construction; never-sessioned users deflating every D_N against install≡first-session benchmarks). First-session makes **D0 = 100 %** an invariant and `cohort_size ≡ RETENTION_CELL(c,0)` a free integrity check.
 - **Consequence**: never-sessioned users (server-only emitters, purchase-before-session) get no spine row (`no_spine_row` advisory tally; install dims → `unknown`); the **money family is spine-independent** — a payer may exist with no spine row, `first_purchase_day` may precede `first_seen`.
 - **Sources**: GameAnalytics retention docs + R. Ovans "Retention" · Adjust glossary/cohorts · Amplitude retention docs + community · Mixpanel retention docs · Google Analytics Help — [GA4] auto-collected events + cohort exploration.
@@ -250,7 +250,7 @@ The design layer's operator-ratification questions (`phases/README.md` list, plu
 - **Sources**: Stripe API-keys + rotation · PostHog project/personal keys · RevenueCat auth · Segment write keys · Amplitude keys-and-tokens · Mixpanel token vs secret · GameAnalytics collection-API HMAC.
 
 ### Q3 — Payer-tier cumulative spend → **RATIFIED: lifetime, fixed thresholds; `lifetime_spend_normalized` on `PAYER_SPINE_EXT`**
-- **Decision**: store lifetime cumulative normalized spend (monotonic, in the 05.5 atomic unit), tier at read time against operator-configured fixed dollar thresholds (default minnow <$10 / dolphin $10–99.99 / whale ≥$100 — the deltaDNA anchor); store the spend, never the tier. Home: [bridge 05.5 §6](phases/05.5-purchase-accept-contract.md); Foundation §1.2 + spine ledger amended.
+- **Decision**: store lifetime cumulative normalized spend (monotonic, in the 05.5 atomic unit), tier at read time against operator-configured fixed dollar thresholds (default minnow <$10 / dolphin $10–99.99 / whale ≥$100 — the deltaDNA anchor); store the spend, never the tier. Home: [bridge 05.5 §6](bridges/05.5-purchase-accept-contract.md); Foundation §1.2 + spine ledger amended.
 - **Why**: the industry's canonical tier definitions are lifetime (deltaDNA: whale = ">$100 lifetime"; 54 % of whales never made a >$50 transaction — status accretes; devtodev/GameAnalytics segment by *total* spend; RevenueCat value = cumulative LTV). "Payer vs non-payer" is itself lifetime-anchored, so windowed tiers within it are incoherent; demotion is layered via RFM recency over a sticky lifetime tier (derivable from `PAYER_PERIOD_SPEND` at zero extra state). Percentile tiering rejected for the spine (unstable/nondeterministic/retroactive), kept as downstream views.
 - **Ledger**: one new payer-bounded line in `metrics/README.md` (landed).
 - **Sources**: deltaDNA/PocketGamer.biz · devtodev segmentation · GameAnalytics whales · Game Developer whale-spending · RevenueCat realized-LTV.

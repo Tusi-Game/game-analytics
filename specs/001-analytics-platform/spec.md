@@ -1,13 +1,46 @@
-# Feature Specification: Self-Hosted Multi-Game Analytics Platform
+# Feature Specification: Self-Hosted Multi-Game Analytics Platform — Platform Umbrella
 
 **Feature Branch**: `001-analytics-platform`
 **Created**: 2026-07-17
-**Status**: Draft — **all six `[NEEDS CLARIFICATION]` resolved via research (2026-07-17)**. The design layer (`phases/`) then resolved 10 ratification questions (Q1–Q10) and, in a subsequent **adversarial-review hardening pass (2026-07-17)**, ~35 further findings across data-corruption, feature-breaking, metric-correctness, and security/ops/GDPR classes — see `phases/README.md` §Hardening and the per-phase specs. Most `research.md §6` second-order questions are now resolved in the design layer (§X-2 session, §D-2 FX, §G-2/§G-3 timezone, §H-4 caps); the residual defers are listed below. Pending stakeholder review, then `/plan`.
+**Restructured**: 2026-07-17 — the single massive spec was split into **one spec per story** (`002`–`012`, siblings of this dir). This `001` directory is now the **platform umbrella**: it holds the cross-cutting material every story shares (why-build, platform-wide requirements & success criteria, clarifications, assumptions) plus the shared substrate (`foundation.md`, `bridges/`, `ER-full.md`, `ops-envelope.md`, `research.md`, `PLAN-INDEX.md`, `funnels.md`). Each story-spec depends on and cites this umbrella; none re-derives it.
+**Status**: Ready for `/plan` — **all six `[NEEDS CLARIFICATION]` resolved via research (2026-07-17)**, all 10 ratification questions (Q1–Q10) resolved by the design layer, all `research.md §6` second-order questions resolved (2026-07-17), funnels scope decision ratified as **DECLINED (design-only v1)**, spine-budget ledger reconciled against SC-007, constitution drafted. The adversarial-review hardening pass (~35 findings) is complete. Residual defers (anon↔user merge, automated rebuild tool, Redis HA, DST) are documented and non-blocking.
 **Input**: Owner wants a lightweight, self-hostable analytics platform for their own Phaser.js / React games (with NestJS backends), because GameAnalytics and Google Analytics are unusable under sanctions / network restrictions. Must serve **multiple games** from one install, lean heavily on Redis + a queue for processing, store only **processed results** (not raw logs) in Postgres, and keep disposable daily raw-event files as cold backup (uploaded to S3, then deleted locally).
 
-**Per-metric detail**: Each metric now has a dedicated research-phase spec sheet — SDK data captured → admin configuration → calculation (formula + worked example) + data-shape requirements — under [`metrics/`](metrics/README.md). Sheets cover raw events/catalog, economy, retention, monetization, sessions, funnels, and derived KPIs. **Note**: the funnels sheet promotes funnels from design-only (FR-022) to a computed metric and flags this as an **open scope decision to ratify** (see `metrics/README.md`).
+## Story-spec index — the split
 
-**Per-story phase design**: The system is also broken into **one design spec per story** under [`phases/`](phases/README.md) — seven phase-specs (ingest/raw-events, sessions, economy, retention, monetization, derived KPIs, cold storage), each following a fixed 6-part structure (story understanding → calculation → data needed → data stored for the long run → Redis-vs-database data-structure thinking → configurations). These deliberately **exclude** technical difficulty / system-design / infra sequencing — those belong to the later per-phase design+implement step. Funnels get no phase-spec (deferred per FR-022). The `phases/` layer is the story-level design; the `metrics/` sheets remain the deeper per-metric reference.
+The system is decomposed into **one spec per story**, each an independently testable, independently valuable slice living in its own sibling directory. Each carries a `spec.md` (story + calculation), a `design.md` (its logical-model realization on the shared `foundation.md`), and a `tasks.md` (or a pointer where task lists are combined). Build/reading order runs top-to-bottom.
+
+| Story dir | Story | Priority | Owns kind | Depends on |
+|---|---|---|---|---|
+| [`002-foundation-ingest`](../002-foundation-ingest/spec.md) | Register a game, fire events, watch them count up (US1) | P1 | `generic` (substrate for all) | — (foundation) |
+| [`003-sessions`](../003-sessions/spec.md) | The atomic engagement unit; the shared "active on a day" anchor | P2 | `session` | 002 |
+| [`004-economy`](../004-economy/spec.md) | Faucets vs drains, net flow, sink ratio, currency depth (US2) | P2 | `economy` | 002 |
+| [`005-retention`](../005-retention/spec.md) | D1/D7/D30 by install cohort (US3) | P2 | consumes `session` | 002, 003 |
+| [`006-monetization`](../006-monetization/spec.md) | Top package by whom / when / context; server-truth revenue (US4) | P2 | `purchase` | 002 |
+| [`007-derived-kpis`](../007-derived-kpis/spec.md) | DAU/WAU/MAU, stickiness, ARPU/ARPPU/ARPDAU, conversion, whale | P3 | derived | 003, 006 |
+| [`008-cold-storage`](../008-cold-storage/spec.md) | Daily raw file → S3-compatible → delete local (US5) | P3 | — (ops) | 002 |
+| [`009-client-sdk`](../009-client-sdk/spec.md) | The browser/game SDK — packaged client artifact (npm) | — | emits all kinds (client-provenance) | 002, 003, 004, 006 |
+| [`010-server-sdk`](../010-server-sdk/spec.md) | The Node server SDK — trusted money/economy path (npm) | — | emits `purchase`/`economy` (server-provenance) | 006, 004; foundation §4.5 |
+| [`011-operator-admin`](../011-operator-admin/spec.md) | Operator auth, game registration + key rotation, config admin | — | — (control plane) | 002, foundation §4.5 |
+| [`012-panel`](../012-panel/spec.md) | Server-rendered analytics panel: metrics, config admin, game management, ops | — | — (presentation) | 002–011, ops-envelope |
+
+**Reading order:** 002 (foundation) → 003 (sessions — the activeness anchor everything leans on) → 004 / 005 / 006 (the core metrics) → 007 (derived from all of the above) → 008 (operational lifecycle, read anytime after 002) → 011 (operator admin) → **012 (panel)**. For the shared design layer, read [`foundation.md`](foundation.md) first, then each story's `design.md`, then the [`bridges/`](bridges/), then [`ER-full.md`](ER-full.md).
+
+## Platform-umbrella artifacts (this directory)
+
+| Artifact | Purpose (one line) |
+|---|---|
+| [`spec.md`](spec.md) | **This file** — the platform-wide requirements, success criteria, clarifications, and the story-spec index above. |
+| [`research.md`](research.md) | The adopt-vs-build survey, domain knowledge §A–§D, the locked §B–§H decisions, and the full Q1–Q10 + hardening research trail. |
+| [`foundation.md`](foundation.md) | The shared design base every story `design.md` cites: global ER skeleton + spine tiers, Redis key grammar/TTLs, pipeline backbone + canonical op-ordering (the routed record), dedup/skew/seal machinery, provenance, ownership matrix, durability ledger. |
+| [`bridges/`](bridges/) | The three cross-story seam contracts: `01.5-raw-file-contract.md` (ingest ↔ cold-storage), `02.5-activeness-spine-contract.md` (sessions → retention spine writes), `05.5-purchase-accept-contract.md` (monetization ↔ derived-KPIs money seam). |
+| [`ER-full.md`](ER-full.md) | The assembled whole-system ER — every durable entity with keys, the ownership/write-path legend, projections-vs-truth map. |
+| [`ops-envelope.md`](ops-envelope.md) | The ops envelope — scale arithmetic, Redis/queue budgets, backpressure posture, per-game rate limiting, scale-lever triggers, and the normative GDPR/CCPA erasure design (Q7). |
+| [`spine-budget-ledger.md`](spine-budget-ledger.md) | The authority on total per-user/per-payer durable cost — every spine draw reconciled against SC-007, plus the funnels-DECLINED scope ruling. |
+| [`PLAN-INDEX.md`](PLAN-INDEX.md) | The implementation build-order map and consolidated R1–R13 reconciliation ledger of cross-cutting flags to settle at `/plan`. |
+| [`funnels.md`](funnels.md) | The **deferred** (design-only, FR-022) funnel specification — forward-compatible artifact, no story dir, no v1 work. |
+
+The project **constitution** (P1–P13) lives at [`../../.specify/memory/constitution.md`](../../.specify/memory/constitution.md) and binds every story-spec and every `/plan` decision.
 
 ---
 
@@ -30,53 +63,15 @@ A survey of self-hostable, open-source analytics tools (full findings in `resear
 
 ## User Scenarios & Testing *(mandatory)*
 
-Each user story is an independently testable, independently valuable slice. Priorities: **P1** = MVP foundation, **P2** = core value, **P3** = complete-the-picture.
+Each user story is an independently testable, independently valuable slice, now specified in its **own story-spec** (see the story-spec index above). Priorities: **P1** = MVP foundation, **P2** = core value, **P3** = complete-the-picture. The full story understanding, acceptance scenarios, calculation, and independent test for each live in that story's `spec.md`:
 
-### User Story 1 — Register a game and start collecting events (Priority: P1)
+- **US1 — Register a game and start collecting events** (P1) → [`002-foundation-ingest`](../002-foundation-ingest/spec.md). Nothing else can be built or verified until multi-tenant ingestion works end-to-end.
+- **US2 — Track the game economy (sink/source)** (P2) → [`004-economy`](../004-economy/spec.md). The headline feature no off-the-shelf tool provides; the primary reason to build.
+- **US3 — Measure retention (D1/D7/D30)** (P2) → [`005-retention`](../005-retention/spec.md) (spine writes owned by [`003-sessions`](../003-sessions/spec.md)). A core health metric; drove the minimal-per-user-spine decision.
+- **US4 — Segmented monetization analytics** (P2) → [`006-monetization`](../006-monetization/spec.md). "Top package by whom / when / context" from server-verified purchase data.
+- **US5 — Cold-storage lifecycle for raw events** (P3) → [`008-cold-storage`](../008-cold-storage/spec.md). Disposable daily raw file → S3-compatible → delete local.
 
-As a game developer, I can register a new game in the platform, receive an SDK key + ingest URL, drop the SDK into my Phaser/React game, and immediately see raw events (button clicks, game actions, screen views) arriving and counting up.
-
-**Why this priority**: Nothing else can be built or verified until multi-tenant ingestion works end-to-end. This is the foundation every other metric depends on.
-
-**Independent Test**: Register a game via the dashboard, wire the SDK into a throwaway page, fire events, and confirm live event counts increment for that game (and only that game). Fully demonstrable on its own.
-
-**Acceptance Scenarios**:
-1. **Given** I am logged into the dashboard, **When** I create a new game "MyGame", **Then** I receive a unique SDK key; events POST to the fixed `/v1/events` endpoint and are attributed to that game by the key (not a per-game URL path).
-2. **Given** the SDK is initialized with a valid key, **When** the game fires a batch of events, **Then** the ingest endpoint accepts them quickly (returns without waiting on processing) and they appear in that game's live counters within a configurable flush interval.
-3. **Given** a request presents an invalid or unknown SDK key, **When** it hits the ingest endpoint, **Then** it is rejected and no data is recorded.
-4. **Given** two different games are registered, **When** each sends events, **Then** their data is fully isolated — one game's dashboard never shows another game's events.
-
-### User Story 2 — Track the game economy (sink/source) (Priority: P2)
-
-As a game developer, I can send currency-flow events (currency granted = **source/faucet**, currency spent = **sink/drain**) and see, per game, total sources vs total sinks per currency over time, net flow, sink ratio, and a per-reason breakdown of the biggest faucets and biggest drains.
-
-**Why this priority**: This is the headline feature no off-the-shelf tool provides and the primary reason to build. It is independently valuable: an economy dashboard alone justifies the platform.
-
-**Independent Test**: Emit a stream of source and sink events across categories and currencies; confirm the dashboard shows correct totals, net flow, sink ratio, and top-faucet/top-drain breakdowns for the chosen period.
-
-**Acceptance Scenarios**:
-1. **Given** economy events tagged `source`/`sink` with a currency type, amount, and reason, **When** processed, **Then** per-currency, per-day totals of sources and sinks are stored and displayed.
-2. **Given** a day's sources and sinks, **When** I view the economy dashboard, **Then** I see net flow (Σsources − Σsinks) and sink ratio (Σsinks / Σsources) per currency.
-3. **Given** many reasons/categories, **When** I view the breakdown, **Then** I see the top faucets and top sinks by contribution.
-
-### User Story 3 — Measure retention (D1 / D7 / D30) (Priority: P2)
-
-As a game developer, I can see how many players return on day 1, day 7, and day 30 after their first session, expressed as a percentage of each install-date cohort.
-
-**Why this priority**: Retention is a core health metric and directly drove the "minimal per-user spine" storage decision. Independently valuable: a retention curve stands alone.
-
-**Independent Test**: Simulate users with known first-seen dates and return days; confirm the platform correctly buckets each user by cohort and day-offset and reports D1/D7/D30 percentages matching the hand-computed truth.
-
-**Acceptance Scenarios**:
-1. **Given** a user's first session, **When** processed, **Then** a minimal user record (game_id, user_id, first_seen) is created exactly once.
-2. **Given** a returning user, **When** processed, **Then** the platform computes their day-offset from first_seen and increments the correct cohort's day-N retention tally.
-3. **Given** a cohort of known size, **When** I view retention, **Then** D1/D7/D30 are shown as returned-count ÷ cohort-size for the **classic Nth-day** definition (active *exactly* on day-offset N), and the metric is **explicitly labelled** "classic Day-N retention" (resolved — research.md §B: rolling is disqualified by results-only storage; Mixpanel-style unbounded is a different, unlabelled number).
-
-### User Story 4 — Segmented monetization analytics (Priority: P2)
-
-As a game developer, I can see not just which package sold most, but which package sold most **to whom / when** — sliced by configurable dimensions (e.g. player level bucket, region, in-game state, payer tier) — using server-verified purchase data.
-
-**Why this priority**: Directly requested ("users in this area / at these levels / in these situations tend to buy X"). Segmentation is the differentiator over a plain revenue bar chart.
+Supporting stories (sessions, derived KPIs, SDKs, operator admin, panel) are indexed above. The platform-wide **edge cases**, **requirements**, and **success criteria** that cut across all stories remain below — they are the umbrella contract every story-spec obeys.
 
 **Independent Test**: Send purchases carrying context dimensions; confirm the dashboard can answer "top package by <dimension>" for the configured dimensions and that server-sent purchases are the trusted source.
 
@@ -227,18 +222,19 @@ Deep multi-source research (one independent pass per question, verified against 
 - **§G** Event-time → **client-time with skew-correction**, UTC, 48 h day-seal grace, quarantine beyond (Edge Cases / FR-008b).
 - **§H** Schema → **hybrid accept-all + auto-registry**; strict typed kinds; drop-unparseable / quarantine-typed-invalid; 500-name cap (Edge Cases / FR-008/008c).
 
-### Open questions — status after the design + hardening passes
+### Open questions — ALL RESOLVED (2026-07-17)
 
-Resolving §B–§H exposed second-order questions (`research.md §6`); the design layer and the 2026-07-17 hardening pass then closed most of them. Current status:
+All 22 second-order questions in `research.md §6` are now **RESOLVED** — see `research.md §6` for the full ledger. Summary:
 
-- **§X-2 Session definition** — **RESOLVED** (phase 02: SDK-managed, 30-min inactivity timeout; reliable close via sendBeacon on `visibilitychange`/`pagehide`, server-authoritative fallback).
-- **§D-2 Currency normalization** — **RESOLVED** (Q8: operator `fx_table`, as-of lookup, park-unconverted; the whale-mis-tier abstention added in the hardening pass — a parked purchase reads tier `indeterminate`, never a deflated value).
-- **§G-2 / §G-3 Timezone** — **RESOLVED, and upgraded in the hardening pass** to a single **platform logical day** (Foundation §4.7): the reporting offset is now *correctness-bearing* (set-once at install, applied to all metrics + seals), not display-only — fixing the systematic single-timezone retention distortion. Multi-timezone is explicitly out of v1 scope.
-- **§X-1 Manual raw-file rebuild** — **PROCEDURE SPECIFIED** (bridge 01.5 §5.1: decode-safe, re-dedup, re-apply erasure-ledger filter, logical-day floor, reconcile-forward-only). The automated tool remains a later-phase build; the contract is now normative.
-- **§H-3 PII in free-form props** — **RESOLVED to default-deny** (01 ships a non-empty `pii_prop_denylist` + a value scrubber applied before raw-append; the catalog-scrub tool is specified — 00.5 §9).
-- **§D-1 Refunds/chargebacks** — **still gross-only v1** (deliberate defer; `refunded` flag + the v2 net-revenue hook carried on `PURCHASE_IDEMPOTENCY`).
+- **§B** (retention): active = session, immature-cohort masking, "classic Day-N" labelling — all adopted in phase 03 / metrics.
+- **§D** (purchase truth): refunds gross-only v1, FX via operator `fx_table` (Q8), sandbox exclusion, identity↔store mapping via server SDK, missing-companion accept — all adopted in metrics/04.
+- **§E** (Redis loss): live-counter TTL end-of-UTC-day, dashboard seam (today=Redis / sealed=Postgres / "provisional" label), fsync-per-batch, per-class merge rules (hardening pass) — all adopted.
+- **§F** (dedup): server-receive-time window, indefinite `transaction_id` retention, server SDK stamps `event_id` (Q2), SET-with-TTL v1 (Bloom deferred) — all adopted in Foundation / metrics.
+- **§G** (bucketing): future-clamp, platform logical day (Foundation §4.7), SDK always stamps `client_sent_time` — all adopted.
+- **§H** (schema): type-drift flag, reserved-name routing, default-deny PII scrubber, 500-name cap (FR-008c) — all adopted.
+- **Cross-cutting**: §X-1 rebuild procedure specified (bridge 01.5), §X-2 session defined (phase 02).
 
-**New residual defers from the hardening pass** (documented, not blocking `/plan`): full anon↔user *merge* (the edge is now captured — Foundation §4.6 — merge deferred); the automated raw-rebuild *tool* (procedure specified); Redis HA replica + Sentinel (optional lever; single-Redis availability SPOF is named in 00.5 §8); DST-aware timezones (single fixed-offset zone assumed). See `phases/README.md` §Hardening for the full findings ledger.
+**Residual defers from the hardening pass** (documented, not blocking `/plan`): full anon↔user *merge* (the edge is now captured — Foundation §4.6 — merge deferred); the automated raw-rebuild *tool* (procedure specified); Redis HA replica + Sentinel (optional lever; single-Redis availability SPOF is named in 00.5 §8); DST-aware timezones (single fixed-offset zone assumed). See `phases/README.md` §Hardening for the full findings ledger.
 
 ---
 
@@ -263,14 +259,14 @@ Resolving §B–§H exposed second-order questions (`research.md §6`); the desi
 - [ ] `docker-compose up` brings the whole stack up on a modest VPS (SC-009).
 - [ ] Cold-storage nightly lifecycle verified with config toggles (SC-010).
 - [x] All six original `[NEEDS CLARIFICATION]` markers resolved via research (research.md §3, 2026-07-17).
-- [ ] Highest-leverage second-order questions (research.md §6 — esp. session definition §X-2) settled before/at `/plan`.
+- [x] All research.md §6 second-order questions resolved (2026-07-17 — see research.md §6 full ledger).
 
 ---
 
 ## Next Steps
 
 1. ~~Complete `research.md` to close the open `[NEEDS CLARIFICATION]` items (§B, §D–§H).~~ **Done — resolved 2026-07-17 (research.md §3).**
-2. Review the second-order open questions (`research.md §6`); settle at least the **session definition (§X-2)** before `/plan`, since retention and monetization both depend on it.
-3. Review the per-metric spec sheets under [`metrics/`](metrics/README.md) and **ratify (or decline) the funnels scope promotion** (`metrics/README.md` open-scope-decision + funnels §7 OQ-1) — funnels are the only sheet contradicting a current spec lock (FR-022). Also reconcile the per-user/per-payer **spine-budget ledger** (`metrics/README.md`) against SC-007.
-4. Establish the project **constitution** (`.specify/memory/constitution.md`) — principles: results-only storage, disposable raw data, config-driven, single-command deploy, server-trusted money, **write-ahead raw-file durability**.
-5. Proceed to `/plan` (technical design: schemas, Redis key layout, worker jobs, API contracts) with §3 decisions locked, §6 defaults in hand, and each metric sheet's §4/§5 as the per-metric design input.
+2. ~~Review the second-order open questions (`research.md §6`); settle at least the session definition (§X-2).~~ **Done — all 22 items resolved 2026-07-17 (research.md §6 full ledger).**
+3. ~~Review the per-metric spec sheets under `metrics/`; ratify or decline the funnels scope promotion; reconcile the per-user/per-payer spine-budget ledger against SC-007.~~ **Done — funnels DECLINED (design-only v1, FR-022 stands); spine ledger reconciled (within SC-007 intent at 10M users; three tightening items applied: economy depth default→off, lifetime-spend field declared in 04 sheet, funnels pruning recorded as v2 deliverable).**
+4. ~~Establish the project constitution (`.specify/memory/constitution.md`).~~ **Done — six principles drafted: results-only storage, disposable raw data, config-driven, single-command deploy, server-trusted money, write-ahead raw-file durability.** (See Subagent C constitution seed in synthesis brief.)
+5. **Proceed to `/plan`** — technical design: schemas, Redis key layout, worker jobs, API contracts. All §3 decisions locked; all §6 defaults confirmed; each metric sheet's §4/§5 is the per-metric design input; the constitution is ready to drop into `.specify/memory/constitution.md`.
