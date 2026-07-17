@@ -31,12 +31,13 @@ Every phase-spec follows the same skeleton, so any two are comparable:
 | 08 | [Client SDK](08-client-sdk.md) | The browser/game SDK — the packaged client artifact (npm) | emits all kinds (client-provenance) | 01, 02, 03, 05 |
 | 09 | [Server SDK](09-server-sdk.md) | The Node server SDK — the trusted money/economy path (npm) | emits `purchase`/`economy` (server-provenance) | 05, 03; Foundation §4.5 |
 | 10 | [Operator / Admin](10-operator-admin.md) | Operator auth, game registration + key rotation, config admin | — (control plane) | 01, Foundation §4.5 |
+| 11 | [Panel (Operator Dashboard)](11-panel-design.md) | Server-rendered analytics panel: metrics, config admin, game management, ops. NestJS + Nunjucks + Tailwind + HTMX + Alpine.js + Chart.js | — (presentation) | 01–10, 00.5 |
 
 Plus one operational envelope spec sitting beside the foundation: [`00.5-ops-envelope.md`](00.5-ops-envelope.md) — scale/memory/backpressure numbers, per-game rate limiting, scale-lever triggers, and the GDPR/CCPA data-erasure design (Q7).
 
 **Design status:** every phase 01–07 above is **design-complete** — each carries a `## Design` section (its logical-model realization on the shared foundation) below its untouched §1–6 story content. See the design layer below.
 
-**Reading order:** 01 (foundation) → 02 (sessions — the activeness anchor everything else leans on) → 03 / 04 / 05 (the core metrics) → 06 (derived from all of the above) → 07 (operational lifecycle, read anytime after 01). For the design layer: `00-foundation.md` first, then each phase's `## Design`, then the bridges, then `ER-full.md`.
+**Reading order:** 01 (foundation) → 02 (sessions — the activeness anchor everything else leans on) → 03 / 04 / 05 (the core metrics) → 06 (derived from all of the above) → 07 (operational lifecycle, read anytime after 01) → 10 (operator admin) → **11 (panel design)**. For the design layer: `00-foundation.md` first, then each phase's `## Design`, then the bridges, then `ER-full.md`.
 
 ## The design layer (design-complete, 2026-07-17)
 
@@ -53,6 +54,7 @@ Each phase now carries a **`## Design` section** appended below its §1–6 stor
 | `## Design` in [`08`](08-client-sdk.md) / [`09`](09-server-sdk.md) | The two packaged-artifact stories — SDK behavior contracts + the npm monorepo packaging/publishing design (workspace layout, scoped names, build targets, changesets, OIDC trusted-publish + provenance, MIT SDKs / Apache-2.0 platform per Q10). |
 | [`10-operator-admin.md`](10-operator-admin.md) | The operator control plane — accounts, game registration + credential (Q2) lifecycle, the admin surface over every §6 knob, the forward-only config-effective-time rule, `OPERATOR_ACCOUNT`/`CONFIG_AUDIT`/credential-child entities. |
 | [`00.5-ops-envelope.md`](00.5-ops-envelope.md) | The ops envelope — scale arithmetic, Redis/queue budgets, backpressure posture, per-game rate limiting, scale-lever trigger points, and the normative GDPR/CCPA erasure design + `ERASURE_LEDGER` (Q7). |
+| [`11-panel-design.md`](11-panel-design.md) | The presentation-layer design — rendering stack (Nunjucks + Tailwind + HTMX + Alpine.js + Chart.js), layout system, full view inventory, interactivity model, asset pipeline. Consumed by the panel's NestJS MVC controllers. |
 
 Two further flagged bridges were **folded into the foundation** instead of filed: the typed-kind handoff contract (Foundation §3.1, "the routed record") and the server-credential trust path (Foundation §4.5, provenance).
 
