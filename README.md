@@ -21,6 +21,8 @@ Spec-driven (using [GitHub Spec Kit](https://github.com/github/spec-kit) convent
 
 1. [`specs/001-analytics-platform/spec.md`](specs/001-analytics-platform/spec.md) — the requirement: user stories, functional requirements, success criteria, decided clarifications.
 2. [`specs/001-analytics-platform/research.md`](specs/001-analytics-platform/research.md) — adopt-vs-build survey, game-analytics domain knowledge, and the 6 open research tasks to close before planning.
+3. [`specs/001-analytics-platform/phases/`](specs/001-analytics-platform/phases/README.md) — **one design spec per story** (ingest, sessions, economy, retention, monetization, derived KPIs, cold storage), each with the same 6-part structure: story understanding, calculation, data needed, data stored long-term, Redis-vs-database data-structure thinking, and configurations. Excludes infra/technical-difficulty concerns by design.
+4. [`specs/001-analytics-platform/metrics/`](specs/001-analytics-platform/metrics/README.md) — deeper per-metric reference sheets behind the phase specs.
 
 ## Decided so far (v1)
 

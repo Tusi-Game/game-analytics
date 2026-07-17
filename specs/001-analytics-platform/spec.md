@@ -7,6 +7,8 @@
 
 **Per-metric detail**: Each metric now has a dedicated research-phase spec sheet — SDK data captured → admin configuration → calculation (formula + worked example) + data-shape requirements — under [`metrics/`](metrics/README.md). Sheets cover raw events/catalog, economy, retention, monetization, sessions, funnels, and derived KPIs. **Note**: the funnels sheet promotes funnels from design-only (FR-022) to a computed metric and flags this as an **open scope decision to ratify** (see `metrics/README.md`).
 
+**Per-story phase design**: The system is also broken into **one design spec per story** under [`phases/`](phases/README.md) — seven phase-specs (ingest/raw-events, sessions, economy, retention, monetization, derived KPIs, cold storage), each following a fixed 6-part structure (story understanding → calculation → data needed → data stored for the long run → Redis-vs-database data-structure thinking → configurations). These deliberately **exclude** technical difficulty / system-design / infra sequencing — those belong to the later per-phase design+implement step. Funnels get no phase-spec (deferred per FR-022). The `phases/` layer is the story-level design; the `metrics/` sheets remain the deeper per-metric reference.
+
 ---
 
 ## Why This Is a Custom Build (Not Adopt) — Research Conclusion
