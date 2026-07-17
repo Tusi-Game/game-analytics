@@ -49,10 +49,13 @@ SC-007 requires Postgres to hold only results + a **minimal per-user spine** (a 
 | 03 Retention | `first_seen` + active-days bitmap | **user** | ~4–46 bytes/user (locked in research §B) | **Core spine** (baseline, already in spec) |
 | 07 Derived KPIs | first-purchase-day flag (write-once) | **payer** | 1 small field, payer-bounded | Minimal; needed for first-purchase conversion |
 | 07 Derived KPIs | per-payer cumulative period spend | **payer** | payer-bounded (payers ≪ users), per period | Modest; needed for whale concentration (WC-1: full vs top-k) |
+| 04 Monetization (05.5) | per-payer **lifetime** cumulative normalized spend (`lifetime_spend_normalized`) | **payer** | 1 small numeric, payer-bounded (payers ≪ users) | **Ratified 2026-07-17 (Q3)** — needed for payer-tier classification (whale by lifetime spend); row-existence = payer/non-payer boundary, non-payers cost zero; rebuildable from `PURCHASE_IDEMPOTENCY` + dated FX |
 | 02 Economy | last-known balance per user × currency (optional) | **user × currency** | only if `economy_depth_capture_mode` on | Optional; off ⇒ no cost |
 | 06 Funnels | per-participant progress record (furthest step + entry time) | **funnel participant** | largest draw; **prunable** once cohort seals | **Conditional on funnels ratification** (see above) |
 
-**Reconciliation:** the payer-bounded draws (07) are small at indie scale (payers are a few % of users). The economy draw (02) is opt-in. The funnels draw (06) is the largest and is *conditional* on the scope decision — and even then is prunable to just the sealed histogram. Baseline retention + these controlled additions keep the spine within the SC-007 intent, but this ledger — not any single sheet's self-assessment — is the authority on total per-user cost. Confirm final sizing at `/plan`.
+**Not a spine draw (operational, recorded here to head off confusion):** `ERASURE_LEDGER` (GDPR/CCPA erasure requests — Q7, normative in [`../phases/00.5-ops-envelope.md`](../phases/00.5-ops-envelope.md)) keys per *erasure request*, not per user, and stores the subject as a per-game keyed hash — never a plaintext `user_id`. It costs nothing against the per-user budget and expires once `raw_retention_days` passes every file the subject could appear in. Likewise the phase-10 credential/audit entities are per-game/per-operator, not per-player.
+
+**Reconciliation:** the payer-bounded draws (07 + the 2026-07-17 lifetime-spend line) are small at indie scale (payers are a few % of users; each is one small numeric per payer). The economy draw (02) is opt-in. The funnels draw (06) is the largest and is *conditional* on the scope decision — and even then is prunable to just the sealed histogram. Baseline retention + these controlled additions keep the spine within the SC-007 intent, but this ledger — not any single sheet's self-assessment — is the authority on total per-user cost. Confirm final sizing at `/plan`.
 
 ## What these sheets feed
 

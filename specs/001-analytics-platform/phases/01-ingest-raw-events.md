@@ -135,3 +135,143 @@ Everything here is an **incremental upsert at ingest** (min/max for seen-times, 
 
 - Deeper sheet: [`../metrics/01-raw-events-catalog.md`](../metrics/01-raw-events-catalog.md) — full edge-case catalog (reserved-name collision, property-type drift, cardinality explosion, PII), rejected variants, open questions.
 - Feeds every later phase: the accept-all substrate (this phase) is what economy/retention/monetization/sessions validate their reserved kinds *within*.
+
+---
+
+## Design
+
+*Realizes §1–6 against [Foundation](00-foundation.md). Phase 01 is the substrate: its worker **is** the canonical front-door (Foundation §3.1 steps 1–6) for every event kind; typed kinds are routed onward at steps 7/8. Nothing below re-derives the backbone, envelope, flush, dedup, or seal machinery — only what this story owns and adds.*
+
+### ER / data model
+
+**Owned durable entities** (Foundation §1.2 names; loose logical types only):
+
+| Entity | Key | Cardinality | Role |
+|---|---|---|---|
+| `GAME` | `game_id` | one per registered game | **Registry, not a result** — direct-written by the operator-admin API (phase 10, Foundation §5). Holds `name`, `config` (this story's §6 knobs; later stories' knobs live here too), `registered_at`. Its credentials are the 1..N `GAME_SDK_KEY` / `GAME_SERVER_CREDENTIAL` children (Q2, phase 10; Foundation §4.5) — the class of the authenticating credential yields both `game_id` **and** `provenance`, never body-trusted. Ingest is the single pinned path `/v1/events` (Q9), not a per-game URL. |
+| `EVENT_CATALOG` | `game_id × event_name` | ≤ `event_name_cap_per_game` rows/game (default 500) | **Result table** (flushed). Adds to Foundation §1.2: `status` (v1 sets every row `accepted` on first sight; `unexpected`/promotion reserved, non-breaking). `kind` stores the **resolved** kind (declared kind, overridden to typed for the three reserved names). Type-drift is **derived at read time** — any `property_type_sets` key whose set holds > 1 type — no stored flag to drift out of sync. |
+| `EVENT_DAY_COUNT` | `game_id × event_name × utc_day` | ≤ name-cap rows/game/day | **Result table** (flushed). Accepted-event count per name per corrected UTC day, every kind (Foundation §8.7). **The grand total is not stored**: `live_total(g,day)` = read-time Σ over the day's rows — cap-bounded (≤ 500 terms), drift-free by construction, same read-time stance as top-N (Foundation §3.3). Flagged below as a realization decision against §4's "grand total" line. |
+| `EXCEPTION_TALLY` | `game_id × utc_day × reason` | ≤ ~7 reasons/game/day | **Result table** (flushed). Reasons per the Foundation §1.2 enum (amendment landed): `nameless`, `unparseable` (incl. missing `event_id`, see open questions), `capexceeded`, `quarantined_typed`, `sealed_late`, `time_fallback` (event *accepted* but bucketed on `server_received_time` because client times were unusable — Foundation §4.2's "then tallied"), `negative_offset` (04's rule, written via 02's path, [bridge 02.5](02.5-activeness-spine-contract.md)), `no_spine_row` (Q1 — non-session event with no spine row), `unknown_kind` (Q9 — an SDK newer than the server), 05's FX tallies `fx_stale_rate_used` / `fx_unconverted` (Q8), and `rate_limited` (00.5 — per-game ingest cap breach). Lifetime totals = read-time Σ over day rows; no second durable structure. Buckets on **arrival day** (see Worker flow). |
+
+**Spine touch (not owned, and NOT seeded here — Q1, 2026-07-17):** `USER_SPINE.first_seen` is written by **02**, on the first accepted `session` event, on 04's behalf ([bridge 02.5 §6](02.5-activeness-spine-contract.md)) — **not** at this front-door and **not** on generic/economy/purchase events. This story owns **no** per-user write; the catalog stores no `user_id` (§4's "no per-user spine" holds trivially). An accepted **non-session** event whose `user_id` has no spine row tallies `no_spine_row` (advisory — SDK-integration signal; never blocks the event). Events carrying only `anon_id` touch no spine (Foundation §4.6 — no aliasing in v1). Sealed-late events stop at step 5 (Foundation §4.3).
+
+**Raw day file (referenced):** `RAW_DAY_FILE` — 01 owns the **append** (write-ahead position, step 4, incl. quarantine-marked entries); 07 owns the lifecycle (upload → delete). Never in Postgres.
+
+```mermaid
+erDiagram
+    GAME {
+        id   game_id PK
+        text sdk_key "UNIQUE; auth → game scope"
+        json config "§6 knobs"
+    }
+    EVENT_CATALOG {
+        text event_name PK
+        text kind "resolved"
+        text status "v1: accepted"
+        json property_type_sets "key → observed-type set"
+    }
+    EVENT_DAY_COUNT {
+        text event_name PK
+        date utc_day PK
+        int  count
+    }
+    EXCEPTION_TALLY {
+        date utc_day PK
+        text reason PK
+        int  count
+    }
+    USER_SPINE {
+        ts first_seen "04-owned; NOT written here — seeded by 02 on first session (Q1)"
+    }
+    GAME ||--o{ EVENT_CATALOG : "discovers names"
+    GAME ||--o{ EVENT_DAY_COUNT : ""
+    GAME ||--o{ EXCEPTION_TALLY : ""
+    GAME ||--o{ USER_SPINE : "referenced (04)"
+    GAME ||--o{ RAW_DAY_FILE : "append here; lifecycle 07"
+    EVENT_CATALOG ||--o{ EVENT_DAY_COUNT : "per-day counts"
+```
+
+### Redis structures
+
+Owned domain tags (Foundation §2.1): **`cnt`**, **`cat`**, and the shared front-door **`dedup`**. Types from the §2.2 palette; TTLs per §2.3. Queue keys and per-domain dirty-registries are Foundation §3.1/§3.2 machinery, not restated.
+
+| Key pattern | Type | TTL | Lifecycle |
+|---|---|---|---|
+| `{game_id}:dedup:{event_id}` | string marker, SETNX-style check-and-set | **24 h fixed** | **Transient-and-losable** — loss risks a ≤ 24 h double-count, accepted for non-money (Foundation §4.1); purchases never rely on it (durable gate, 05). Never flushed. |
+| `{game_id}:cnt:{utc_day}` | hash — field = `event_name`, value = running **absolute** day count | ~72 h from day end | **Flushes** → `EVENT_DAY_COUNT` (absolute upsert, §3.2); rehydrate-on-miss from Postgres (§2.3). Seals with the day. |
+| `{game_id}:cnt:{utc_day}:exc` | hash — field = `reason`, value = running absolute | ~72 h from day end | **Flushes** → `EXCEPTION_TALLY`. |
+| `{game_id}:cnt:{utc_day}:rank` | zset — member = `event_name`, score = day count | ~72 h from day end | **Transient-and-losable, display-only** (§2.2: zsets are never the stored truth). Maintained beside the hash for cheap live top-N; never flushed; on miss the dashboard falls back to the hash / last-flushed Postgres (§3.3). |
+| `{game_id}:cat:{event_name}` | hash — `kind`, `first_seen`, `last_seen`, `count` (lifetime absolute), `p:{prop_key}` = encoded observed-type set | idle ~72 h, refreshed on write | **Flushes** → `EVENT_CATALOG`. **Day-less domain**: no seal (rows never finalize — `last_seen` advances for the game's life), dirty-marked for the §3.2 sweep, rehydrate-on-miss from `EVENT_CATALOG` seeds min/max/count/type-sets so increments and unions stay absolute. `property_key_cap_per_event` is enforced against this hash's `p:*` field count. |
+| `{game_id}:cat:names` | set of registered names | idle ~72 h | **Transient-and-losable** — the name-cap gate + new-name detector; rehydrate-on-miss from `EVENT_CATALOG` (the durable truth for "is this name registered / how many exist"). |
+
+**Split summary:** `cnt` + `cat` hashes flush (absolutes only); `USER_SPINE.first_seen` is durable-immediate (never rides the flush); `dedup` markers, the rank zset, and the names set are transient-and-losable. SDK-key auth reads `GAME` directly (tiny registry; no Redis mirror, no new domain tag).
+
+### Worker / pipeline flow
+
+This story **realizes Foundation §3.1 steps 1–6 for all kinds** and adds its own steps 7/8. Per-step additions only; the backbone is not restated.
+
+**Resolved-kind routing (explicit).** After envelope normalization (`kind` defaults `generic`; the three reserved names force the typed route regardless of declared kind — §H-2):
+
+| Resolved kind | Steps 1–6 | Step 7 (durable-immediate) | Step 8 (hot buckets) |
+|---|---|---|---|
+| `generic` | front-door (01) | **none** (no spine seed — Q1; `no_spine_row` tally if no row) | 01: `cat` + `cnt` |
+| `session` | front-door (01) | **`first_seen` seed (02, sequence A) then bitmap bit (02, sequence B)** — both on 04's behalf, bridge 02.5 | 01: `cat` + `cnt`, then 02: `sess`/`act` |
+| `economy` | front-door (01) | none (`no_spine_row` tally if no row) → route → 03 | 01: `cat` + `cnt`, then 03: `eco`/`bal` |
+| `purchase` | front-door (01); step 6 **is** 05's durable `transaction_id` gate | 05/06 money writes (05.5 atomic unit); **no `first_seen` seed** (money is spine-independent — Q1) | 01: `cat` + `cnt`, then 05: `mon`/`payer`/`rev`/`stage` |
+
+Every accepted event of every kind feeds the catalog + day counts (Foundation §8.7); quarantined typed events feed **nothing** — no catalog row increment, no day count (§2 worked example).
+
+**Step realization:**
+
+- **API-side (pre-queue):** SDK-key auth resolves the game scope; unknown key or key↔URL mismatch → reject, nothing recorded (FR-003). The batch body is enqueued opaque and fast-acked (FR-006); every per-event verdict is worker-side.
+- **Step 1:** parse each envelope; empty `name` / unparseable / missing `event_id` → **drop-and-tally**, never raw-appended (Foundation §4.4).
+- **Step 2:** skew-correct per §4.2; unusable client times → `server_received_time` bucket + `time_fallback` tally (event still accepted).
+- **Step 3 (01's realization):** reserved-name override → `pii_prop_denylist` / `pii_prop_hash` strip (forward-only, pre-catalog, pre-raw) → **name-cap gate** for new generic names (at cap → drop-and-tally `capexceeded`, decided **before** step 4 — drops are never raw-appended) → typed strict required-payload presence check (invalid → quarantine-mark, proceed to step 4, then stop). Property-key cap: excess *new* keys are ignored at the catalog upsert; the event still counts.
+- **Step 4:** the raw append is **owned here** (write position; file format/lifecycle = 07): per-game corrected-day file, quarantine-marked entries included, fsync **before** any counter, spine, or Redis write (§E/SC-008).
+- **Step 5:** seal check → quarantine tail + `sealed_late` tally → stop. **Arrival-day tally rule (realization):** `EXCEPTION_TALLY` buckets on the server-received UTC day of the offending arrival — exception subjects have unusable or beyond-seal corrected times, and arrival-day bucketing keeps tallies out of sealed days by construction.
+- **Step 6:** windowed `event_id` marker for `generic`/`economy`/`session`; for `purchase` the gate is 05's durable insert-if-absent (05-owned write; 01 owns only the **sequencing** — gate before any spine or hot write, conflict → stop).
+- **Step 7:** `first_seen` insert-if-absent runs **before** typed routing, so 02's bitmap write (same event, session-start) and all later Day-N offset math always find a spine row. Then the routed story's own step-7 writes run.
+- **Step 8:** for every accepted kind: `cat` hash upsert (min/max seen-times, lifetime count +1, type-set union) + `cnt` hash increment + rank zset increment — all rehydrate-on-miss (§2.3); then the routed story's step-8 accumulators.
+- **Idempotency:** flushes are no-ops on retry (§3.2). A worker crash between step 6 and ack makes the retried job a dedup no-op → possible undercount bounded by the crash window; accepted under approximate-OK counts (§2). Money is immune: the durable gate and durable-immediate writes are idempotent absolutes.
+
+### API / contract surface
+
+**Registration (one-time, operator).** The operator-admin API (phase 10) registers a game and auto-issues its public `sdk_key`; server credentials are created on demand (Foundation §4.5, Q2). §6 knobs are read/updated via that admin API onto `GAME.config`; forward-only semantics enforced at ingest time, never retroactively (§6, phase 10 config-effective-time rule).
+
+**Ingest.** `POST /v1/events` (the versioned transport path, Q9 — Foundation §1.1 wire contract), credential in a header, body = the batch object `{v, sdk{name,version}, events:[…canonical envelopes…]}` (Foundation §1.1). `game_id` and `provenance` are **server-derived from the authenticating credential's class** (Foundation §4.5), never from the body. Ack = `2xx {received: n}` after enqueue — a queue-acceptance receipt, **not** a validation promise (verdicts are async; observability via tallies), and version-blind (an old SDK never distinguishes "understood" from "quarantined", Q9). Undecodable batch body / unknown-`v` batch → still `2xx`-acked where the events are recoverable, else `400`, with the appropriate tally (`unparseable`; unknown `kind` → `unknown_kind`). The path is pinned `/v1`; wire v1 is accepted for the life of the platform (Foundation §9.7).
+
+**Per-event verdicts** (realizes Foundation §4.4):
+
+| Condition | Verdict | Raw-appended? | Tally reason |
+|---|---|---|---|
+| empty / missing `name` | drop | no | `nameless` |
+| unparseable envelope / missing `event_id` | drop | no | `unparseable` |
+| new generic name while at name cap | drop | no | `capexceeded` |
+| resolved typed kind missing required payload | quarantine | yes (marked) | `quarantined_typed` |
+| corrected day already sealed | quarantine | yes (tail) | `sealed_late` |
+| client times unusable, otherwise valid | **accept** | yes | `time_fallback` |
+
+**Dashboard read-model** (WHAT is read; the live-vs-historical merge is Foundation §3.3, applied once, uniformly):
+
+- **Live counts:** today's `{game_id}:cnt:{utc_day}` hash — per-name counts plus read-time Σ grand total; labeled provisional (≤ flush-cadence drift).
+- **Top-N:** live from the `…:rank` zset (ties broken by catalog `last_seen` desc), `top_n_events` display-only; historical = read-time ordering over `EVENT_DAY_COUNT` — rankings are never stored (§3.3).
+- **Catalog browser:** `EVENT_CATALOG` — name, resolved kind, first/last-seen, lifetime count (approximate-OK), property keys with observed-type sets + derived drift indicator, `status`.
+- **Exception tallies:** `EXCEPTION_TALLY` per-day rows + read-time lifetime Σ; surfaced iff `drop_counter_visible`.
+- **Registry:** game list + per-game config.
+
+### Relations with other stories
+
+- **Owns:** `GAME` (registry + config storage); `EVENT_CATALOG`; `EVENT_DAY_COUNT`; `EXCEPTION_TALLY` (including the tally writes for other kinds' quarantines); Redis domains `cnt`, `cat`, and the shared front-door `dedup`; the front-door worker steps 1–6 for **all** kinds (envelope validation, skew, raw-append position, seal verdict, the drop-vs-quarantine decision); the raw day-file **append** (lifecycle is 07's).
+- **Writes (shared):** **none** to the spine — `USER_SPINE.first_seen` is seeded by **02** on the first session (Q1, bridge 02.5), no longer at this front-door. This story's only shared writes are the catalog/day-count/tally result tables it owns.
+- **Reads:** `GAME.config` (own §6 knobs at ingest); `EVENT_CATALOG` / `EVENT_DAY_COUNT` for rehydrate-on-miss; nothing owned by another story.
+- **Feeds:** **02 / 03 / 05** — validated, skew-corrected, deduped, seal-checked typed events routed at steps 7/8 (their inputs never bypass this front-door); **04** — via 02's session path (`first_seen` is seeded by 02 on the first session, Q1 — the front-door no longer seeds it); **07** — the day files + quarantine tails it ships; **all stories** — `EXCEPTION_TALLY` as the shared observability surface; **dashboard** — every read-model surface above.
+- **Ordering / lifecycle:** the `GAME` row must exist before any ingest (auth gate). Per event, this story enforces the backbone order for everyone: raw append ≺ seal check ≺ dedup ≺ `first_seen` ≺ routed-story durable writes ≺ hot counters. `first_seen` precedes 02's bitmap write within the same event's step 7. Step 6 for purchases **hosts** 05's durable gate (write and conflict semantics are 05's design; sequencing is 01's). `cnt` buckets follow the §2.3 seal lifecycle; `cat` is day-less (dirty-flush, no seal). Registration precedes everything.
+- **Flagged bridges (Stage-3 dispositions):**
+  - **Typed-kind handoff contract (01 → 02/03/05)** — **folded into Foundation §3.1 ("the routed record")**: the normalized record (envelope + resolved kind + corrected event-time/day + front-door verdicts), single producer, three typed consumers — pinned there, no bridge file.
+  - **Raw day-file contract (01 ↔ 07)** — **created: [`01.5-raw-file-contract.md`](01.5-raw-file-contract.md)** — 01 executes the append, 07 owns file semantics + lifecycle; routing, marker vocabulary, fsync grain, rotation, off-toggle, upload eligibility all normative there.
+
+**Open questions (this design):**
+
+1. **Missing `event_id` on a generic event** — realized as drop-and-tally under `unparseable` (an undedupable event would void the §F 24 h guarantee); the deeper sheet's "name + parseable body is enough" reading would instead accept-without-dedup. Default: drop; flag if accept-undeduped is wanted.
+2. **`time_fallback` tally reason** — *resolved*: the Foundation §1.2 reason enum now includes `time_fallback` (amendment landed); this design's accepted-event tally is exactly that value. No semantic change; no longer an open question.
+3. **Grand total as read-time Σ** — §4 lists a stored per-game×day grand total; this design derives it read-time from `EVENT_DAY_COUNT` (cap-bounded, drift-free, still raw-re-scan-free). Flag if a stored cell is preferred.
