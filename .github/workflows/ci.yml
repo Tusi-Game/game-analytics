@@ -31,6 +31,19 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # MinIO — the cold-storage (008) conformance suite ships raw day-files to a
+      # live S3-compatible endpoint. Without this the integration tests fail with
+      # an AWS AggregateError instead of exercising the seal→upload→verify path.
+      # The bitnami image auto-starts the server via its entrypoint (a bare
+      # service container can't pass the `server /data` command the official
+      # image needs). Readiness is polled in an explicit step below.
+      minio:
+        image: bitnami/minio:latest
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
 
     env:
       NODE_ENV: test
@@ -43,6 +56,12 @@ jobs:
       DB_NAME: analytics
       REDIS_HOST: localhost
       REDIS_PORT: '6379'
+      MINIO_S3_ENDPOINT: 'http://localhost:9000'
+      MINIO_ENDPOINT: localhost
+      MINIO_PORT: '9000'
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: analytics-raw
 
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +74,19 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
+
+      # Wait for MinIO's S3 API to answer before the cold-storage conformance
+      # suite runs (the service container has no built-in healthcheck here).
+      - name: Wait for MinIO
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9000/minio/health/live; then
+              echo "MinIO is up"; exit 0
+            fi
+            echo "waiting for MinIO ($i)..."; sleep 2
+          done
+          echo "MinIO did not become ready in time" >&2; exit 1
+
       - run: npm run test
       - run: npm run test:e2e
       - run: npm run build
