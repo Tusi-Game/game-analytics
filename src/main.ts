@@ -32,6 +32,20 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   const config = app.get(ConfigService);
+
+  // Production boot assertion (T-00.84, ops-envelope §9): an empty/dev master key
+  // silently degrades subject_ref + credential HMAC hashing to a PUBLIC constant,
+  // making key_hash/subject_ref re-derivable. The health check surfaces this, but
+  // a production deploy that forgets the key must FAIL FAST, not boot insecurely.
+  if ((process.env.NODE_ENV ?? '') === 'production') {
+    const masterKey = (config.get<string>('SECRET_MASTER_KEY') ?? '').trim();
+    if (masterKey === '' || masterKey === 'DEV-INSECURE-MASTER') {
+      throw new Error(
+        'SECRET_MASTER_KEY is empty or the insecure dev default in production — refusing to boot with re-derivable subject_ref/credential hashes. Set a real out-of-DB master key.',
+      );
+    }
+  }
+
   const port = config.get<number>('PORT') ?? 3000;
   await app.listen(port);
   logger.log(`Analytics platform listening on port ${port}`);
