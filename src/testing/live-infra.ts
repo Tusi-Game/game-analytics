@@ -45,6 +45,8 @@ import { PayerDayEntity } from '../database/entities/payer-day.entity';
 import { PayerSpineExtEntity } from '../database/entities/payer-spine-ext.entity';
 import { PayerPeriodSpendEntity } from '../database/entities/payer-period-spend.entity';
 import { FxRateEntity } from '../database/entities/fx-rate.entity';
+// 008-cold-storage.
+import { UploadBookkeepingEntity } from '../database/entities/upload-bookkeeping.entity';
 
 const REDIS_HOST = process.env.REDIS_HOST ?? '127.0.0.1';
 const REDIS_PORT = Number(process.env.REDIS_PORT ?? 6379);
@@ -115,6 +117,8 @@ export async function connectPostgresOrNull(): Promise<DataSource | null> {
       PayerSpineExtEntity,
       PayerPeriodSpendEntity,
       FxRateEntity,
+      // 008-cold-storage.
+      UploadBookkeepingEntity,
     ],
     namingStrategy: new SnakeNamingStrategy(),
     synchronize: true, // TEST-ONLY: build the schema in an ephemeral test DB.

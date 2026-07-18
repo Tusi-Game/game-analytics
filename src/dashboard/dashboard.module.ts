@@ -5,6 +5,7 @@ import { RedisModule } from '../redis/redis.module';
 import { SessionsModule } from '../sessions/sessions.module';
 import { EconomyModule } from '../economy/economy.module';
 import { MonetizationModule } from '../monetization/monetization.module';
+import { ColdStorageModule } from '../cold-storage/cold-storage.module';
 import { ReadModelService } from './read-model.service';
 import { ReadModelController } from './read-model.controller';
 
@@ -17,7 +18,17 @@ import { ReadModelController } from './read-model.controller';
  * SessionReadService / RetentionReadService exported by {@link SessionsModule}.
  */
 @Module({
-  imports: [CommonModule, DatabaseModule, RedisModule, SessionsModule, EconomyModule, MonetizationModule],
+  imports: [
+    CommonModule,
+    DatabaseModule,
+    RedisModule,
+    SessionsModule,
+    EconomyModule,
+    MonetizationModule,
+    // 008-cold-storage: exports UploadStatusReadModel for the ops upload-status
+    // dashboard surface (appended to ReadModelController).
+    ColdStorageModule,
+  ],
   controllers: [ReadModelController],
   providers: [ReadModelService],
   exports: [ReadModelService],

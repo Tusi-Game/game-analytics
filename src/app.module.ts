@@ -12,6 +12,7 @@ import { SessionsModule } from './sessions/sessions.module';
 import { EconomyModule } from './economy/economy.module';
 import { MonetizationModule } from './monetization/monetization.module';
 import { GdprModule } from './gdpr/gdpr.module';
+import { ColdStorageModule } from './cold-storage/cold-storage.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PanelModule } from './panel/panel.module';
 import { OperatorModule } from './operator/operator.module';
@@ -47,6 +48,11 @@ import { HealthController } from './health/health.controller';
     // single-binding dedup-gate override wins.
     MonetizationModule,
     GdprModule,
+    // 008-cold-storage — the raw day-file lifecycle (seal-drive → decode-gate →
+    // upload → verify → record → retention-delete) + ops read-model. MUST come
+    // after WorkersModule (imports the exported RawFileService). Registers its own
+    // BullMQ repeatable shipment job (distinct job name on the shared queue).
+    ColdStorageModule,
     DashboardModule,
     PanelModule,
     OperatorModule,

@@ -25,6 +25,7 @@ import {
   type WhaleView,
   type Maybe,
 } from '../monetization/monetization-read.service';
+import { UploadStatusReadModel, type UploadStatusRow } from '../cold-storage/upload-status.read-model';
 
 @Controller('v1/dashboard')
 @UseGuards(OperatorSessionGuard)
@@ -37,6 +38,8 @@ export class ReadModelController {
     private readonly economyRead: EconomyReadService,
     // 006-monetization + 007-derived-kpis read surface (appended additively).
     private readonly monetizationRead: MonetizationReadService,
+    // 008-cold-storage upload-status read surface (appended additively).
+    private readonly uploadStatus: UploadStatusReadModel,
   ) {}
 
   /**
@@ -241,5 +244,28 @@ export class ReadModelController {
   ): Promise<{ new: number; returning: number; dau: Maybe }> {
     const resolvedDay = day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : utcDay(Date.now());
     return this.monetizationRead.newReturning(gameId, resolvedDay);
+  }
+
+  // ---- 008-cold-storage upload-status read endpoints (appended) --------------
+
+  /**
+   * `GET /v1/dashboard/:gameId/cold-storage/status?day=YYYY-MM-DD` — the derived
+   * upload status for one game × day: n/a · open · pending · uploaded ·
+   * local-deleted (PG-direct, never stored). `day` defaults to the current UTC day.
+   */
+  @Get(':gameId/cold-storage/status')
+  async coldStorageStatus(@Param('gameId') gameId: string, @Query('day') day?: string): Promise<UploadStatusRow> {
+    const resolvedDay = day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : utcDay(Date.now());
+    return this.uploadStatus.statusFor(gameId, resolvedDay);
+  }
+
+  /**
+   * `GET /v1/dashboard/:gameId/cold-storage/uploads` — every recorded (verified)
+   * upload for a game (uploaded / local-deleted days), ordered by day. Derived
+   * from UPLOAD_BOOKKEEPING; no Redis merge (operational metadata).
+   */
+  @Get(':gameId/cold-storage/uploads')
+  async coldStorageUploads(@Param('gameId') gameId: string): Promise<UploadStatusRow[]> {
+    return this.uploadStatus.recordedFor(gameId);
   }
 }
