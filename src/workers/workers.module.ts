@@ -24,6 +24,7 @@ import {
   PermissiveTypedValidator,
   FLOOR_PROVIDER,
 } from './kernel/default-hooks';
+import { KindDispatchValidator, KindDispatchDurableHook, KindDispatchHotHook } from './kernel/kind-dispatch';
 import { RAW_APPEND_PORT, ACK_PORT } from './kernel/unit3-ports';
 import { RawFileService, RAW_FILE_OPTIONS, type RawFileServiceOptions } from './rawfile/raw-file.service';
 import { WorkerAckPort } from './kernel/ack.port';
@@ -40,9 +41,21 @@ import { LastUsedFlushService } from '../operator/last-used-flush.service';
  *   ACK_PORT         → {@link WorkerAckPort} (per-record ack; BullMQ job ack on return)
  *   FLOOR_PROVIDER   → {@link PostgresFloorProvider} (last-flushed absolute floor)
  *   NAME_CAP_GATE    → {@link RedisNameCapGate} (per-game distinct-name budget, R3)
- *   TYPED_VALIDATOR  → PermissiveTypedValidator (003/005/006 supply strict bodies)
- *   DURABLE_IMMEDIATE_HOOK → Noop (generic has no durable-immediate work, Q1)
- *   HOT_UPDATE_HOOK  → {@link GenericHotUpdateHook} (cat/cnt/rank real increments)
+ *
+ * ---- Stage-C KIND-DISPATCH seam (shared substrate for 003/004/006) --------
+ * The three per-kind step-3/7/8 seams are now DISPATCHERS, not single bindings:
+ *   TYPED_VALIDATOR  → {@link KindDispatchValidator}  (per-kind step-3 validate;
+ *                      fallback = PermissiveTypedValidator — generic/unregistered
+ *                      typed kinds behave exactly as before)
+ *   DURABLE_IMMEDIATE_HOOK → {@link KindDispatchDurableHook} (per-kind step-7;
+ *                      fallback = Noop — generic has no durable work, Q1;
+ *                      returns the delegate's DurableWrittenToken verbatim so
+ *                      durable ≺ hot stays compile-enforced)
+ *   HOT_UPDATE_HOOK  → {@link KindDispatchHotHook} (generic cat/cnt/rank base
+ *                      ALWAYS runs, THEN the routed story's accumulators; fallback
+ *                      = generic base only)
+ * A story (003/004/006) plugs in ADDITIVELY via the KIND_*_REGISTRATION
+ * multi-provider tokens — no conflicting edit to these single bindings.
  *
  * Also registers the BullMQ ingest worker + the repeatable flush job
  * ({@link IngestWorker}) and the flush-job orchestration ({@link FlushJobService}).
@@ -59,6 +72,15 @@ import { LastUsedFlushService } from '../operator/last-used-flush.service';
     GenericHotUpdateHook,
     HotBucketWriter,
     ExceptionTallyWriter,
+    // Stage-C kind-dispatch seam: the default (fallback) hooks are concrete
+    // providers so the dispatchers can inject them, plus the three dispatchers
+    // themselves. Story modules add their per-kind triples via the
+    // KIND_*_REGISTRATION multi-provider tokens (additive, collision-free).
+    PermissiveTypedValidator,
+    NoopDurableImmediateHook,
+    KindDispatchValidator,
+    KindDispatchDurableHook,
+    KindDispatchHotHook,
     // Raw-file writer options from config (cold-storage toggle, dir, codec).
     {
       provide: RAW_FILE_OPTIONS,
@@ -80,9 +102,12 @@ import { LastUsedFlushService } from '../operator/last-used-flush.service';
     { provide: ACK_PORT, useExisting: WorkerAckPort },
     { provide: FLOOR_PROVIDER, useExisting: PostgresFloorProvider },
     { provide: NAME_CAP_GATE, useExisting: RedisNameCapGate },
-    { provide: TYPED_VALIDATOR, useClass: PermissiveTypedValidator },
-    { provide: DURABLE_IMMEDIATE_HOOK, useClass: NoopDurableImmediateHook },
-    { provide: HOT_UPDATE_HOOK, useExisting: GenericHotUpdateHook },
+    // Stage-C: the kernel's three per-kind seams now resolve to the DISPATCHERS.
+    // Fallbacks inside each dispatcher preserve today's exact generic behavior
+    // when no story is registered for a kind (zero regression).
+    { provide: TYPED_VALIDATOR, useExisting: KindDispatchValidator },
+    { provide: DURABLE_IMMEDIATE_HOOK, useExisting: KindDispatchDurableHook },
+    { provide: HOT_UPDATE_HOOK, useExisting: KindDispatchHotHook },
     { provide: PII_SCRUB_PORT, useExisting: KernelPiiScrubAdapter },
     // R7 (011): last-use flush half — drains the resolver's Redis coalesce into
     // credential child-table last_used_at on the flush cadence. Provided here

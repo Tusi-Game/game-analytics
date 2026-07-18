@@ -58,6 +58,25 @@ export interface FloorProvider {
   excFloor(gameId: string, utcDay: string): Promise<DurableFloor>;
 }
 
+/**
+ * ============ Stage-C EXTENSION POINT: per-domain floor providers =========
+ * This {@link FloorProvider} is the 002 GENERIC floor (cnt/cat/exc), consumed
+ * ONLY by {@link GenericHotUpdateHook}. A typed story (003/004/006) needs floors
+ * for its OWN domains (eco/bal/sess/act/ret/mon/payer …) so its rehydrate seeds
+ * from the durable absolute, never 0.
+ *
+ * DELIBERATELY NOT a shared interface to extend. Forcing every story to add
+ * `ecoFloor/sessFloor/monFloor …` methods here — and to `PostgresFloorProvider`
+ * — would be the exact single-file collision the kind-dispatch seam exists to
+ * avoid. Instead each story's registered step-8 hot hook (via
+ * `KIND_HOT_REGISTRATION`) INJECTS ITS OWN floor provider, scoped to its domains,
+ * and calls it directly inside the story hook body. The generic floor here is
+ * never touched by a story, so there is no shared mutation point — the pattern is
+ * collision-free BY CONSTRUCTION (no registry needed). A story floor provider is
+ * an ordinary `@Injectable` in the story module reading the story's entities,
+ * mirroring {@link PostgresFloorProvider}'s shape.
+ */
+
 /** DI token for the {@link FloorProvider} (Unit 3 binds the Postgres-backed one). */
 export const FLOOR_PROVIDER = 'FLOOR_PROVIDER';
 

@@ -6,3 +6,4 @@
 export * from './pipeline-steps';
 export * from './ingest-kernel';
 export * from './default-hooks';
+export * from './kind-dispatch';
