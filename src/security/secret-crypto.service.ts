@@ -39,7 +39,27 @@ export class SecretCryptoService {
 
   constructor(config: ConfigService, @Inject(SECRET_MASTER_KEY) rawOverride?: string) {
     const raw = rawOverride ?? config.get<string>('SECRET_MASTER_KEY') ?? '';
-    this.key = raw.trim() === '' ? null : createHash('sha256').update(raw, 'utf8').digest();
+    this.key = SecretCryptoService.deriveKey(raw);
+  }
+
+  /**
+   * Derive the 32-byte AES key from raw master-key material (SHA-256), or null
+   * when empty. Exposed so the master-key ROTATION path (T-10.22) can build an
+   * ephemeral crypto for the OLD key during the dual-key decrypt-old/encrypt-new
+   * window without touching the injected instance's key.
+   */
+  static deriveKey(raw: string): Buffer | null {
+    return raw.trim() === '' ? null : createHash('sha256').update(raw, 'utf8').digest();
+  }
+
+  /**
+   * Build an ephemeral SecretCryptoService bound to a specific raw master key —
+   * used by the rotation job to decrypt rows under the OLD key. Not a DI provider;
+   * a plain factory so rotation is a self-contained maintenance operation.
+   */
+  static withRawKey(raw: string): SecretCryptoService {
+    // ConfigService is unused when a rawOverride is supplied; pass a stub.
+    return new SecretCryptoService({ get: () => undefined } as unknown as ConfigService, raw);
   }
 
   /** True iff a master key is configured (envelope-encryption is active). */

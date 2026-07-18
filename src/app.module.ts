@@ -11,6 +11,7 @@ import { WorkersModule } from './workers/workers.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PanelModule } from './panel/panel.module';
+import { OperatorModule } from './operator/operator.module';
 import { HealthController } from './health/health.controller';
 
 /**
@@ -31,6 +32,7 @@ import { HealthController } from './health/health.controller';
     GdprModule,
     DashboardModule,
     PanelModule,
+    OperatorModule,
   ],
   controllers: [HealthController],
 })

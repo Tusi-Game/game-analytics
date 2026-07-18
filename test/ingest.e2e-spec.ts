@@ -6,10 +6,13 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { Redis } from 'ioredis';
 import { DataSource } from 'typeorm';
+import { randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
 import { GameEntity } from '../src/database/entities/game.entity';
+import { GameSdkKeyEntity } from '../src/database/entities/game-sdk-key.entity';
 import { EventDayCountEntity } from '../src/database/entities/event-day-count.entity';
 import { FlushJobService } from '../src/workers/flush/flush-job.service';
+import { credentialPrefix, hashCredential } from '../src/operator/credential-hash';
 
 /**
  * Ingest front-door e2e against LIVE Redis + Postgres (T-01.43–46).
@@ -83,20 +86,33 @@ describe('Ingest e2e (live stack)', () => {
     ds = app.get(DataSource);
     flushJob = app.get(FlushJobService);
 
-    // Seed the auth game (idempotent).
-    await ds
-      .getRepository(GameEntity)
-      .upsert(
-        {
-          gameId: AUTH_GAME,
-          name: 'E2E',
-          sdkKey: AUTH_KEY,
-          serverCredential: null,
-          config: {},
-          registeredAt: new Date(),
-        },
-        ['gameId'],
-      );
+    // Seed the auth game (idempotent) + its hashed sdk_key CHILD row — the
+    // rewritten resolver (011) reads the child table, not the inline scalar.
+    await ds.getRepository(GameEntity).upsert(
+      {
+        gameId: AUTH_GAME,
+        name: 'E2E',
+        sdkKey: null,
+        serverCredential: null,
+        config: {},
+        registeredAt: new Date(),
+      },
+      ['gameId'],
+    );
+    const master = process.env.SECRET_MASTER_KEY ?? '';
+    const keyHash = hashCredential(master, AUTH_KEY);
+    const existingKey = await ds.getRepository(GameSdkKeyEntity).findOne({ where: { keyHash } });
+    if (!existingKey) {
+      await ds.getRepository(GameSdkKeyEntity).insert({
+        gameId: AUTH_GAME,
+        keyId: randomUUID(),
+        keyPrefix: credentialPrefix(AUTH_KEY),
+        keyHash,
+        createdAt: new Date(),
+        lastUsedAt: null,
+        revokedAt: null,
+      });
+    }
   });
 
   afterAll(async () => {

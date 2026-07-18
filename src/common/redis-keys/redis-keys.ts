@@ -114,4 +114,34 @@ export const OpsKeys = {
    * `tokens` + `ts`) for `ingest_events_per_sec_cap` (ops-envelope §5). TTL-bounded.
    */
   rateLimit: (gameId: string): string => dayLessKey(gameId, 'ops', 'ratelimit'),
+
+  /**
+   * `ops:opsession:{session_id}` — 011 operator session store (R8, TTL-bounded).
+   * NOT game-scoped (operators are cross-game staff), so the game_id segment is a
+   * fixed `_ops` placeholder — the grammar still validates and keys never collide
+   * with a per-game result domain. Value is the JSON session record.
+   */
+  operatorSession: (sessionId: string): string => dayLessKey('_ops', 'ops', 'opsession', sessionId),
+
+  /**
+   * `{game_id}:ops:creduse` — R7 last-use coalesce hash for a game's credentials.
+   * Field = `{kind}:{id}` (kind ∈ sdk|srv), value = last-seen epoch ms (LWW).
+   * The resolver stamps this O(1) on the hot path (NO Postgres write); the flush
+   * sweep drains it into the child-table `last_used_at`. TTL-bounded (R8).
+   */
+  credUse: (gameId: string): string => dayLessKey(gameId, 'ops', 'creduse'),
+
+  /**
+   * `{game_id}:ops:cfgcache` — 011 worker config-cache snapshot (T-10.26).
+   * Reserved here so the tag is registered; the cache itself is Unit B.
+   */
+  workerConfigCache: (gameId: string): string => dayLessKey(gameId, 'ops', 'cfgcache'),
 } as const;
+
+/** Field builder for the {@link OpsKeys.credUse} hash: `{kind}:{id}`. */
+export function credUseField(kind: 'sdk' | 'srv', id: string): string {
+  return `${kind}:${id}`;
+}
+
+/** TTL (seconds) for the last-use coalesce hash — one flush cadence + margin. */
+export const CRED_USE_TTL_SECONDS = 15 * 60;

@@ -21,6 +21,12 @@ import { EventCatalogEntity } from '../database/entities/event-catalog.entity';
 import { ExceptionTallyEntity } from '../database/entities/exception-tally.entity';
 import { IdentityEdgeEntity } from '../database/entities/identity-edge.entity';
 import { ErasureLedgerEntity } from '../database/entities/erasure-ledger.entity';
+import { OperatorAccountEntity } from '../database/entities/operator-account.entity';
+import { OperatorLoginAuditEntity } from '../database/entities/operator-login-audit.entity';
+import { GameSdkKeyEntity } from '../database/entities/game-sdk-key.entity';
+import { GameServerCredentialEntity } from '../database/entities/game-server-credential.entity';
+import { ConfigAuditEntity } from '../database/entities/config-audit.entity';
+import { GdprRequestAuditEntity } from '../database/entities/gdpr-request-audit.entity';
 
 const REDIS_HOST = process.env.REDIS_HOST ?? '127.0.0.1';
 const REDIS_PORT = Number(process.env.REDIS_PORT ?? 6379);
@@ -66,6 +72,13 @@ export async function connectPostgresOrNull(): Promise<DataSource | null> {
       ExceptionTallyEntity,
       IdentityEdgeEntity,
       ErasureLedgerEntity,
+      // 011 operator/admin registry entities (test-only synchronize builds them).
+      OperatorAccountEntity,
+      OperatorLoginAuditEntity,
+      GameSdkKeyEntity,
+      GameServerCredentialEntity,
+      ConfigAuditEntity,
+      GdprRequestAuditEntity,
     ],
     namingStrategy: new SnakeNamingStrategy(),
     synchronize: true, // TEST-ONLY: build the schema in an ephemeral test DB.

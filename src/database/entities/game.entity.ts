@@ -5,10 +5,12 @@ import type { GameConfig } from '../../common/contracts/config';
  * GAME — the per-game registry row (Foundation §1.2, ER-full §1).
  *
  * A registry, NOT a result table. Ingest owns the storage; 011-operator-admin
- * owns the write path (registration/admin API). The full credential-child
- * tables (`GAME_SDK_KEY`, `GAME_SERVER_CREDENTIAL`) are 011's — this phase keeps
- * only the scalar `sdk_key` / `server_credential` read surface needed to make
- * ingest auth testable before 011 exists (see `src/seed.ts`, T-01.6).
+ * owns the write path (registration/admin API). The credential-child tables
+ * (`GAME_SDK_KEY`, `GAME_SERVER_CREDENTIAL`) are 011's and are now the source of
+ * truth for auth resolution. The inline `sdkKey` / `serverCredential` scalars are
+ * DEPRECATED (migration 012): migrated into hashed child rows and made nullable;
+ * nothing reads them anymore (the rewritten resolver reads the child tables).
+ * They remain physically for one release as a safe deprecation window.
  *
  * snake_case columns are produced automatically by SnakeNamingStrategy — the
  * properties below are camelCase and MUST NOT carry hand-written `name:`
@@ -24,19 +26,17 @@ export class GameEntity {
   name!: string;
 
   /**
-   * Public-by-design client credential. Client SDKs authenticate with this;
-   * resolving it server-side yields `provenance=client` (§4.5). UNIQUE so a key
-   * maps to exactly one game.
+   * DEPRECATED (migration 012) — the pre-011 inline client credential. Migrated
+   * into a hashed `GAME_SDK_KEY` child row and made nullable; the resolver no
+   * longer reads it. Kept physically for one deprecation window; do not write it.
    */
-  @Column({ type: 'text', unique: true })
-  sdkKey!: string;
+  @Column({ type: 'text', nullable: true })
+  sdkKey!: string | null;
 
   /**
-   * Secret server credential — a minimal pre-011 auth read surface that is
-   * compared as plaintext for now. Nullable — a game may have no server-scope
-   * credential. Resolving it yields `provenance=server`. 011 realises the full
-   * 1..N `GAME_SERVER_CREDENTIAL` child table with HASHED storage + show-once and
-   * migrates this scalar away; do not rely on this column holding a hash yet.
+   * DEPRECATED (migration 012) — the pre-011 inline server credential. Migrated
+   * into a hashed `GAME_SERVER_CREDENTIAL` child row; the resolver no longer reads
+   * it. Kept physically for one deprecation window; do not write it.
    */
   @Column({ type: 'text', nullable: true })
   serverCredential!: string | null;

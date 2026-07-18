@@ -112,5 +112,20 @@ export function envConfig(): EnvConfig {
     SECRET_MASTER_KEY: optionalEnv('SECRET_MASTER_KEY', ''),
     REQUIRE_TLS: parseBool('REQUIRE_TLS', optionalEnv('REQUIRE_TLS', 'false')),
     ALLOWED_ORIGINS: optionalEnv('ALLOWED_ORIGINS', ''),
+    // Operator account hardening (011 §6). All platform-level.
+    OPERATOR_SESSION_TIMEOUT_MIN: parseIntStrict(
+      'OPERATOR_SESSION_TIMEOUT_MIN',
+      optionalEnv('OPERATOR_SESSION_TIMEOUT_MIN', '120'),
+    ),
+    OPERATOR_LOGIN_MAX_ATTEMPTS: parseIntStrict(
+      'OPERATOR_LOGIN_MAX_ATTEMPTS',
+      optionalEnv('OPERATOR_LOGIN_MAX_ATTEMPTS', '5'),
+    ),
+    OPERATOR_LOCKOUT_MIN: parseIntStrict('OPERATOR_LOCKOUT_MIN', optionalEnv('OPERATOR_LOCKOUT_MIN', '15')),
+    OPERATOR_MFA_REQUIRED: parseBool('OPERATOR_MFA_REQUIRED', optionalEnv('OPERATOR_MFA_REQUIRED', 'false')),
+    WORKER_CONFIG_CACHE_REFRESH_SEC: parseIntStrict(
+      'WORKER_CONFIG_CACHE_REFRESH_SEC',
+      optionalEnv('WORKER_CONFIG_CACHE_REFRESH_SEC', '30'),
+    ),
   };
 }

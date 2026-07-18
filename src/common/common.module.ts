@@ -1,6 +1,5 @@
 import { Global, Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
-import { SdkKeyGuard } from './guards/sdk-key.guard';
 import { OperatorSessionGuard } from './guards/operator-session.guard';
 import { AppValidationPipe } from './pipes/validation.pipe';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
@@ -25,8 +24,11 @@ import { WindowedDedupGate, UnimplementedPurchaseDedupGate, PURCHASE_DEDUP_GATE 
 @Global()
 @Module({
   providers: [
-    // Guards are exported for consumers to bind per-route (e.g. @UseGuards(SdkKeyGuard)).
-    SdkKeyGuard,
+    // The operator-session guard SKELETON (dashboard/panel bind it as a dev no-op
+    // until spec 012 wires the real operator session). The real per-route guard
+    // for the 011 admin API is operator/OperatorSessionGuard. The dead
+    // SdkKeyGuard skeleton was retired in 011 Unit B (the real IngestAuthGuard
+    // owns the only credential-authed route).
     OperatorSessionGuard,
     AppValidationPipe,
     // Rehydrate-on-miss + seeded-marker machinery (foundation §2.3, P10).
@@ -38,13 +40,6 @@ import { WindowedDedupGate, UnimplementedPurchaseDedupGate, PURCHASE_DEDUP_GATE 
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
   ],
-  exports: [
-    SdkKeyGuard,
-    OperatorSessionGuard,
-    AppValidationPipe,
-    RehydrateService,
-    WindowedDedupGate,
-    PURCHASE_DEDUP_GATE,
-  ],
+  exports: [OperatorSessionGuard, AppValidationPipe, RehydrateService, WindowedDedupGate, PURCHASE_DEDUP_GATE],
 })
 export class CommonModule {}

@@ -23,7 +23,8 @@
  *   drop_counter_visible      true  display-only
  */
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { GameEntity } from '../database/entities/game.entity';
 import type { GameConfig } from '../common/contracts/config';
@@ -65,9 +66,27 @@ export class GameConfigService {
 
   constructor(
     private readonly dataSource: DataSource,
-    @Inject(GAME_CONFIG_CACHE_TTL_MS) ttlMs?: number,
+    @Optional() @Inject(GAME_CONFIG_CACHE_TTL_MS) ttlMs?: number,
+    @Optional() config?: ConfigService,
   ) {
-    this.ttlMs = typeof ttlMs === 'number' && ttlMs >= 0 ? ttlMs : 30_000;
+    // WORKER CONFIG CACHE (T-10.26) — the realized effective-time is "within one
+    // refresh interval of the admin write". 011 owns the contract; workers READ
+    // it. Decision (Unit B): keep 002's IN-PROCESS per-service cache rather than
+    // introduce a Redis ops:* snapshot — the in-process cache already bounds the
+    // lag to `worker_config_cache_refresh_sec` and adding a Redis snapshot would
+    // rewrite every worker's read path (destabilizing 002's hot path for no
+    // correctness gain; every forward-only knob re-keys by effective_from PER
+    // CELL, not by a global flip, so a per-worker rolling refresh is safe). The
+    // config-writer (ConfigAdminService) also calls invalidate() on write, so a
+    // change is observed immediately on the writer node and within one refresh on
+    // worker nodes. An explicit DI TTL override wins (tests inject 0); otherwise
+    // `worker_config_cache_refresh_sec` (default 30s) sets the interval.
+    if (typeof ttlMs === 'number' && ttlMs >= 0) {
+      this.ttlMs = ttlMs;
+    } else {
+      const refreshSec = config?.get<number>('WORKER_CONFIG_CACHE_REFRESH_SEC');
+      this.ttlMs = typeof refreshSec === 'number' && refreshSec > 0 ? refreshSec * 1000 : 30_000;
+    }
   }
 
   /** Read a game's whole config blob (cached, forward-only). */

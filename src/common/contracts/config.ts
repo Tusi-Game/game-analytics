@@ -76,6 +76,26 @@ export interface EnvConfig {
    * no Origin restriction (server builds, dev). ops-envelope §9 Origin check.
    */
   ALLOWED_ORIGINS: string;
+  /**
+   * Operator admin-session idle timeout in minutes (011 §6, default 120). The
+   * Redis session key TTL — bounded per R8. Platform-level.
+   */
+  OPERATOR_SESSION_TIMEOUT_MIN: number;
+  /** Failed logins before lockout (011 §6, default 5). Platform-level. */
+  OPERATOR_LOGIN_MAX_ATTEMPTS: number;
+  /** Lockout backoff in minutes once max attempts hit (011 §6, default 15). */
+  OPERATOR_LOCKOUT_MIN: number;
+  /**
+   * Require TOTP MFA at operator login (011 §6, default off). Strongly
+   * recommended on; self-hostable, no external dependency. Platform-level.
+   */
+  OPERATOR_MFA_REQUIRED: boolean;
+  /**
+   * Worker config-cache refresh interval in seconds (011 §6, T-10.26, default
+   * 30). The realized config-effective-time is "within one refresh interval of
+   * the admin write" — a bounded, documented lag. Platform-level.
+   */
+  WORKER_CONFIG_CACHE_REFRESH_SEC: number;
 }
 
 /**

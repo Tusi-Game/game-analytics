@@ -1,8 +1,8 @@
 /**
  * Ingest auth guard (T-01.17, FR-003) — the real credential→game resolver bound
- * on `POST /v1/events`, replacing the dev-skeleton `SdkKeyGuard` for the ingest
- * route. (The common `SdkKeyGuard` skeleton stays for 011 to fully generalize;
- * this guard is 002's concrete ingest-path auth.)
+ * on `POST /v1/events`. It is the sole credential-authed route, so the old common
+ * dev-skeleton `SdkKeyGuard` was retired in 011 Unit B; this guard is the
+ * concrete ingest-path auth.
  *
  *   - Reads `Authorization: Bearer <credential>`.
  *   - Resolves `{ game_id, provenance }` server-side from the credential CLASS

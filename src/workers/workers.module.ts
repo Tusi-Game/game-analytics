@@ -32,6 +32,7 @@ import { RedisNameCapGate } from './kernel/redis-name-cap.gate';
 import { HotBucketWriter } from './kernel/hot-bucket.writer';
 import { ExceptionTallyWriter } from './kernel/exception-tally.writer';
 import { IngestWorker } from './ingest.worker';
+import { LastUsedFlushService } from '../operator/last-used-flush.service';
 
 /**
  * Worker bounded context — Unit 3 fills the Unit-2 SEAMS with the real hot path:
@@ -83,6 +84,11 @@ import { IngestWorker } from './ingest.worker';
     { provide: DURABLE_IMMEDIATE_HOOK, useClass: NoopDurableImmediateHook },
     { provide: HOT_UPDATE_HOOK, useExisting: GenericHotUpdateHook },
     { provide: PII_SCRUB_PORT, useExisting: KernelPiiScrubAdapter },
+    // R7 (011): last-use flush half — drains the resolver's Redis coalesce into
+    // credential child-table last_used_at on the flush cadence. Provided here
+    // (needs only DataSource + REDIS_CLIENT, both global) so IngestWorker can
+    // drive it WITHOUT importing OperatorModule (avoids a workers→operator cycle).
+    LastUsedFlushService,
     // The BullMQ worker + repeatable flush registration.
     IngestWorker,
   ],

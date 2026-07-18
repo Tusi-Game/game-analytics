@@ -20,7 +20,7 @@
  * {@link FlushJobService}) on `flush_interval_seconds`.
  */
 
-import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker, type Job } from 'bullmq';
 import { Redis } from 'ioredis';
@@ -31,6 +31,7 @@ import { arrivalBucketDay } from '../common/kernel/logical-day';
 import { IngestKernel, type KernelContext, type PipelineOutcome } from './kernel/ingest-kernel';
 import { ExceptionTallyWriter } from './kernel/exception-tally.writer';
 import { FlushJobService } from './flush/flush-job.service';
+import { LastUsedFlushService } from '../operator/last-used-flush.service';
 
 /** BullMQ job names on the ingest queue. */
 export const INGEST_BATCH_JOB = 'ingest-batch';
@@ -50,6 +51,11 @@ export class IngestWorker implements OnModuleInit, OnApplicationShutdown {
     private readonly kernel: IngestKernel,
     private readonly tally: ExceptionTallyWriter,
     private readonly flushJob: FlushJobService,
+    // R7 (011): drains the resolver's Redis last-use coalesce → child-table
+    // last_used_at on the SAME flush cadence. Provided by WorkersModule (needs
+    // only DataSource + REDIS_CLIENT, both global — no operator-module import
+    // cycle). @Optional so unit/smoke DI graphs without it still boot.
+    @Optional() private readonly lastUsedFlush?: LastUsedFlushService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -76,7 +82,18 @@ export class IngestWorker implements OnModuleInit, OnApplicationShutdown {
   /** Route a dequeued job to the batch processor or the flush sweep. */
   private async dispatch(job: Job): Promise<unknown> {
     if (job.name === FLUSH_JOB) {
-      return this.flushJob.sweep();
+      const sweep = await this.flushJob.sweep();
+      // R7: drain the credential last-use coalesce on the SAME cadence. Best-
+      // effort — a drain hiccup must never fail the flush job (it is idempotent
+      // and self-heals next sweep).
+      if (this.lastUsedFlush) {
+        try {
+          await this.lastUsedFlush.drain();
+        } catch (err) {
+          this.logger.warn(`[worker] last-use drain skipped this sweep: ${(err as Error).message}`);
+        }
+      }
+      return sweep;
     }
     return this.processBatch(job);
   }
