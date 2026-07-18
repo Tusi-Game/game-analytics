@@ -31,19 +31,10 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      # MinIO — the cold-storage (008) conformance suite ships raw day-files to a
-      # live S3-compatible endpoint. Without this the integration tests fail with
-      # an AWS AggregateError instead of exercising the seal→upload→verify path.
-      # The bitnami image auto-starts the server via its entrypoint (a bare
-      # service container can't pass the `server /data` command the official
-      # image needs). Readiness is polled in an explicit step below.
-      minio:
-        image: bitnami/minio:latest
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
+      # NOTE: MinIO is NOT a service container. The official minio/minio image
+      # needs a `server /data` command, which GitHub service containers can't
+      # supply, so it is started as an explicit `docker run` step below (same
+      # digest-pinned image as docker-compose.yml).
 
     env:
       NODE_ENV: test
@@ -75,17 +66,25 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
 
-      # Wait for MinIO's S3 API to answer before the cold-storage conformance
-      # suite runs (the service container has no built-in healthcheck here).
-      - name: Wait for MinIO
+      # Start MinIO (S3-compatible) for the cold-storage (008) conformance suite.
+      # Run as a plain container so the `server /data` command can be passed —
+      # the same digest-pinned image docker-compose.yml uses.
+      - name: Start MinIO
         run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
+            server /data
           for i in $(seq 1 30); do
             if curl -sf http://localhost:9000/minio/health/live; then
               echo "MinIO is up"; exit 0
             fi
             echo "waiting for MinIO ($i)..."; sleep 2
           done
-          echo "MinIO did not become ready in time" >&2; exit 1
+          echo "MinIO did not become ready in time" >&2
+          docker logs minio || true
+          exit 1
 
       - run: npm run test
       - run: npm run test:e2e
