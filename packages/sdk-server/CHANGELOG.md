@@ -1,4 +1,4 @@
-# @analytics-platform/analytics-sdk-server
+# @tusi-game/analytics-sdk-server
 
 ## 0.1.0
 

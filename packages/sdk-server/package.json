@@ -1,5 +1,5 @@
 {
-  "name": "@analytics-platform/analytics-sdk-server",
+  "name": "@tusi-game/analytics-sdk-server",
   "version": "0.1.0",
   "description": "Node server analytics SDK — trusted verified-purchase + economy emission (spec 010-server-sdk). MIT.",
   "license": "MIT",
@@ -28,9 +28,13 @@
     "access": "public",
     "provenance": true
   },
+  "homepage": "https://github.com/Tusi-Game/game-analytics/tree/master/packages/sdk-server#readme",
+  "bugs": {
+    "url": "https://github.com/Tusi-Game/game-analytics/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/<org>/analytics-platform.git",
+    "url": "git+https://github.com/Tusi-Game/game-analytics.git",
     "directory": "packages/sdk-server"
   },
   "keywords": [

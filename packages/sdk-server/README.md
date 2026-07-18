@@ -1,9 +1,8 @@
-# @&lt;org&gt;/analytics-sdk-server
+# @tusi-game/analytics-sdk-server
 
-> **`<org>` is operator input** — the npm organization scope is not yet chosen.
-> During development the package is named `@analytics-platform/analytics-sdk-server`.
-> The **wire** identifier `sdk.name = "analytics-sdk-server"` is stable regardless
-> of the npm scope.
+> The npm package is `@tusi-game/analytics-sdk-server`. The **wire** identifier
+> `sdk.name = "analytics-sdk-server"` is stable regardless of the npm scope, so
+> changing the publish scope never changes the on-the-wire protocol.
 
 The Node **server** analytics SDK for the self-hostable analytics platform (spec
 [010-server-sdk]). Your trusted backend — the service that already validates
@@ -14,7 +13,7 @@ economy flows.
 - **Trust posture.** Authenticates with a **secret** `server_credential`
   (`sk_…`); every event is server-stamped `provenance = server` — the only events
   eligible for revenue. **This credential must never ship inside a game build** —
-  that is why it is a separate package from [@&lt;org&gt;/analytics-sdk].
+  that is why it is a separate package from [@tusi-game/analytics-sdk].
 - **No receipt validation here.** Your backend validates receipts (or delegates
   to its payment stack) and passes the *outcome*; this SDK ships the
   already-verified row.
@@ -23,13 +22,13 @@ economy flows.
 ## Install
 
 ```bash
-npm install @<org>/analytics-sdk-server
+npm install @tusi-game/analytics-sdk-server
 ```
 
 ## Quickstart
 
 ```ts
-import { AnalyticsServer } from '@<org>/analytics-sdk-server';
+import { AnalyticsServer } from '@tusi-game/analytics-sdk-server';
 
 const analytics = AnalyticsServer.init({
   serverCredential: process.env.ANALYTICS_SERVER_CREDENTIAL!, // NEVER inline
@@ -119,4 +118,4 @@ tag via npm trusted publishing (OIDC) with provenance — no `NPM_TOKEN`.
 MIT.
 
 [010-server-sdk]: ../../specs/010-server-sdk/spec.md
-[@&lt;org&gt;/analytics-sdk]: ../sdk-client/README.md
+[@tusi-game/analytics-sdk]: ../sdk-client/README.md

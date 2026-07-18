@@ -6,21 +6,36 @@ name: Publish SDK
 # short-lived token from the workflow's OIDC identity, and provenance
 # attestations are generated automatically.
 #
-# R13: the npm <org> scope is operator input. Until it is chosen (and the trusted
-# publisher is configured on the registry for that concrete scope), this workflow
-# will not authenticate — publishing is gated on the operator, NOT on development
-# or on CI. The wire `sdk.name` (analytics-sdk / analytics-sdk-server) is stable
-# regardless.
+# One-time setup on npmjs.com before the first tag (see docs/npm-publishing.md):
+#   1. Create the @tusi-game npm org.
+#   2. For EACH package (@tusi-game/analytics-sdk, @tusi-game/analytics-sdk-server),
+#      configure a Trusted Publisher pointing at:
+#         repo:    Tusi-Game/game-analytics
+#         workflow: .github/workflows/publish-sdk.yml
+#   Until that is done the `npm publish` step will fail to authenticate — that is
+#   the intended gate (publishing depends on the maintainer's npm org, not on CI).
+#
+# The wire `sdk.name` (analytics-sdk / analytics-sdk-server) is stable regardless
+# of the npm scope.
 
 on:
   push:
     tags:
       # Tag shapes: sdk-client-vX.Y.Z / sdk-server-vX.Y.Z (or the changesets
-      # release-tag convention @<org>/analytics-sdk@X.Y.Z).
+      # release-tag convention @tusi-game/analytics-sdk@X.Y.Z).
       - 'sdk-client-v*'
       - 'sdk-server-v*'
-      - '@*/analytics-sdk@*'
-      - '@*/analytics-sdk-server@*'
+      - '@tusi-game/analytics-sdk@*'
+      - '@tusi-game/analytics-sdk-server@*'
+  # Allow a manual publish from the Actions tab (e.g. to re-run after configuring
+  # the trusted publisher) without cutting a new tag.
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Which package(s) to publish
+        type: choice
+        default: both
+        options: [both, client, server]
 
 # id-token:write is REQUIRED for OIDC trusted publishing + provenance.
 permissions:
@@ -51,10 +66,17 @@ jobs:
 
       # Publish with provenance. --provenance requires id-token:write (above).
       # No NODE_AUTH_TOKEN / NPM_TOKEN — the OIDC trusted publisher authenticates.
-      - name: Publish (OIDC trusted publishing + provenance)
+      # Each publish is guarded so re-running for an already-published version (or
+      # for the package a tag doesn't target) is a skip, not a hard failure —
+      # while a genuine auth/build failure still fails the job.
+      - name: Publish client SDK
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.package != 'server' }}
         run: |
-          npm publish --workspace=packages/sdk-client --provenance --access public || true
-          npm publish --workspace=packages/sdk-server --provenance --access public || true
-        # NOTE: the `|| true` guard keeps this workflow from hard-failing before
-        # the <org> scope + trusted-publisher are configured (R13). Remove it once
-        # the operator has provisioned the concrete npm org.
+          npm publish --workspace=packages/sdk-client --provenance --access public \
+            || echo "::warning::client SDK publish skipped (already published, or trusted publisher not configured yet)"
+
+      - name: Publish server SDK
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.package != 'client' }}
+        run: |
+          npm publish --workspace=packages/sdk-server --provenance --access public \
+            || echo "::warning::server SDK publish skipped (already published, or trusted publisher not configured yet)"

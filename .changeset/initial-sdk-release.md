@@ -1,6 +1,6 @@
 ---
-"@analytics-platform/analytics-sdk": minor
-"@analytics-platform/analytics-sdk-server": minor
+"@tusi-game/analytics-sdk": minor
+"@tusi-game/analytics-sdk-server": minor
 ---
 
 Initial 0.1.0 release of the two publishable SDK packages (specs 009-client-sdk +

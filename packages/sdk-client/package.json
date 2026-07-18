@@ -1,5 +1,5 @@
 {
-  "name": "@analytics-platform/analytics-sdk",
+  "name": "@tusi-game/analytics-sdk",
   "version": "0.1.0",
   "description": "Browser / game analytics client SDK — canonical event emission, offline queue, sessions (spec 009-client-sdk). MIT.",
   "license": "MIT",
@@ -29,9 +29,13 @@
     "access": "public",
     "provenance": true
   },
+  "homepage": "https://github.com/Tusi-Game/game-analytics/tree/master/packages/sdk-client#readme",
+  "bugs": {
+    "url": "https://github.com/Tusi-Game/game-analytics/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/<org>/analytics-platform.git",
+    "url": "git+https://github.com/Tusi-Game/game-analytics.git",
     "directory": "packages/sdk-client"
   },
   "keywords": [

@@ -1,5 +1,5 @@
 /**
- * @<org>/analytics-sdk-server — the Node server SDK (spec 010-server-sdk).
+ * @tusi-game/analytics-sdk-server — the Node server SDK (spec 010-server-sdk).
  *
  * The TRUSTED emitter: verified purchase rows (money truth) + server-granted
  * economy flows. Secret `server_credential` (sk_) auth; every event is

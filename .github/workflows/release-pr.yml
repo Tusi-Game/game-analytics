@@ -1,0 +1,50 @@
+name: Release PR
+
+# Changesets "Version Packages" flow. When changeset files land on master, this
+# opens (or updates) a PR that bumps the SDK package versions and rewrites their
+# CHANGELOGs from the accumulated changesets. Merging that PR is the human signal
+# that a release is ready.
+#
+# This workflow does NOT publish — it only versions. Publishing is done by
+# publish-sdk.yml via npm trusted publishing (OIDC), triggered when the release
+# tag is pushed. That keeps the token-free (no NPM_TOKEN) posture: the only secret
+# GITHUB_TOKEN needs is the default one, to open the PR.
+#
+# After merging the Version PR, cut the tag(s) to trigger the publish, e.g.:
+#   git tag '@tusi-game/analytics-sdk@0.1.0' && git push --tags
+#   git tag '@tusi-game/analytics-sdk-server@0.1.0' && git push --tags
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency: release-pr-${{ github.ref }}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Opens/updates the "Version Packages" PR. `version` runs
+      # `changeset version` (bump + changelog); no `publish` step, so no npm token.
+      - name: Create or update the Version Packages PR
+        uses: changesets/action@v1
+        with:
+          version: npx changeset version
+          title: 'chore: version SDK packages'
+          commit: 'chore: version SDK packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

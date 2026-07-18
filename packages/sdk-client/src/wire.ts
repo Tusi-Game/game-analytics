@@ -35,7 +35,7 @@ export const WIRE_VERSION = 1 as const;
 
 /**
  * The client SDK's stable wire identifier (`sdk.name`). Decoupled from the npm
- * scope: the package may be published as `@<org>/analytics-sdk`, but the wire
+ * scope: the package may be published as `@tusi-game/analytics-sdk`, but the wire
  * name the server correlates on is this stable string.
  */
 export const SDK_NAME = 'analytics-sdk';

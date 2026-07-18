@@ -1,10 +1,8 @@
-# @&lt;org&gt;/analytics-sdk
+# @tusi-game/analytics-sdk
 
-> **`<org>` is operator input** — the npm organization scope is not yet chosen. Every
-> `@<org>/` in this repo is a placeholder resolved before the first `npm publish`
-> (it binds the OIDC trusted-publishing config + provenance attestation). During
-> development the package is named `@analytics-platform/analytics-sdk`. The **wire**
-> identifier `sdk.name = "analytics-sdk"` is stable regardless of the npm scope.
+> The npm package is `@tusi-game/analytics-sdk`. The **wire** identifier
+> `sdk.name = "analytics-sdk"` is stable regardless of the npm scope, so changing
+> the publish scope never changes the on-the-wire protocol.
 
 The browser / game **client** analytics SDK for the self-hostable analytics
 platform (spec [009-client-sdk]). It turns game-code calls into canonical
@@ -14,19 +12,19 @@ session definition — the shipped half of the "live counts in minutes" promise.
 - **Trust posture.** This SDK is the public, embeddable, *spoofable* path. It
   authenticates with a public `sdk_key` (`pk_…`); every event is server-stamped
   `provenance = client`. It can never mint revenue — money is the server SDK's
-  job ([@&lt;org&gt;/analytics-sdk-server]).
+  job ([@tusi-game/analytics-sdk-server]).
 - **Zero runtime dependencies.** ESM + CJS + a browser-global bundle + `.d.ts`.
 
 ## Install
 
 ```bash
-npm install @<org>/analytics-sdk
+npm install @tusi-game/analytics-sdk
 ```
 
 ## Quickstart (the US1 promise: live counts in minutes)
 
 ```ts
-import { AnalyticsClient } from '@<org>/analytics-sdk';
+import { AnalyticsClient } from '@tusi-game/analytics-sdk';
 
 const sdk = await AnalyticsClient.init({
   sdkKey: 'pk_live_xxx',                 // PUBLIC key — safe to ship in a build
@@ -39,7 +37,7 @@ await sdk.track('level_start', { level: 1 });
 Script tag / Phaser embed:
 
 ```html
-<script src="https://unpkg.com/@<org>/analytics-sdk/dist/index.global.js"></script>
+<script src="https://unpkg.com/@tusi-game/analytics-sdk/dist/index.global.js"></script>
 <script>
   AnalyticsSDK.AnalyticsClient.init({ sdkKey: 'pk_...', endpoint: '...' })
     .then((sdk) => sdk.track('level_start'));
@@ -79,7 +77,7 @@ await sdk.purchaseContext(attemptId, { player_level: 12, in_game_state: 'boss_fi
 ```
 
 Your backend then relays the SAME `purchase_attempt_id` onto the verified revenue
-row via [@&lt;org&gt;/analytics-sdk-server]'s `verifiedPurchase`. **If you cannot thread
+row via [@tusi-game/analytics-sdk-server]'s `verifiedPurchase`. **If you cannot thread
 it, the companion still ships and the purchase still counts — only the segmented
 dimensions are lost** (graceful degradation, spec §3.2). The store
 `transaction_id` is the server's money-dedup key; `purchase_attempt_id` is the
@@ -123,4 +121,4 @@ MIT — the embeddable SDK is MIT (GPL-2.0-compatible) even though the platform 
 Apache-2.0, so it can ship inside third-party game builds.
 
 [009-client-sdk]: ../../specs/009-client-sdk/spec.md
-[@&lt;org&gt;/analytics-sdk-server]: ../sdk-server/README.md
+[@tusi-game/analytics-sdk-server]: ../sdk-server/README.md

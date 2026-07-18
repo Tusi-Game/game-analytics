@@ -1,5 +1,5 @@
 /**
- * @<org>/analytics-sdk — the browser / game client SDK (spec 009-client-sdk).
+ * @tusi-game/analytics-sdk — the browser / game client SDK (spec 009-client-sdk).
  *
  * The shipped, spoofable, zero-money path: it turns game-code calls into
  * canonical envelopes, survives flaky networks and killed tabs, and executes the
