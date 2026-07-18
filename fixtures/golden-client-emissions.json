@@ -1,0 +1,128 @@
+{
+  "_doc": "R4 golden CLIENT-SDK emissions (spec 009 §3). One physical fixture set consumed by the client SDK conformance tests AND the ingest tests. Each entry is the EXPECTED wire envelope shape the client SDK emits for a given capture verb, with STATIC ids (evt-*, s-*) as placeholders — the SDK mints ULIDs at runtime, so conformance asserts SHAPE + field-names + the fixed non-id fields, never the exact minted ids. game_id / server_received_time / client_sent_time are DELIBERATELY ABSENT (the client never sends them; the transport stamps client_sent_time at flush).",
+  "emissions": [
+    {
+      "case": "track-generic",
+      "verb": "track('level_start', { level: 3 })",
+      "envelope": {
+        "event_id": "evt-0001",
+        "anon_id": "anon-0001",
+        "session_id": "s-0001",
+        "name": "level_start",
+        "kind": "generic",
+        "client_event_time": 1752840000000,
+        "props": { "level": 3 }
+      }
+    },
+    {
+      "case": "track-generic-identified",
+      "verb": "identify('u-1'); track('level_start')",
+      "envelope": {
+        "event_id": "evt-0002",
+        "user_id": "u-1",
+        "anon_id": "anon-0001",
+        "session_id": "s-0001",
+        "name": "level_start",
+        "kind": "generic",
+        "client_event_time": 1752840060000,
+        "props": {}
+      }
+    },
+    {
+      "case": "economy-client-provenance",
+      "verb": "economy('sink', 'gold', 50, 'shop_purchase', { balance_after: 120 })",
+      "envelope": {
+        "event_id": "evt-0003",
+        "anon_id": "anon-0001",
+        "session_id": "s-0001",
+        "name": "economy",
+        "kind": "economy",
+        "client_event_time": 1752840120000,
+        "props": {
+          "balance_after": 120,
+          "flow_type": "sink",
+          "currency_type": "gold",
+          "amount": 50,
+          "reason": "shop_purchase"
+        }
+      }
+    },
+    {
+      "case": "purchase-companion-zero-money",
+      "verb": "purchaseContext(attemptId, { player_level: 12, region: 'EU', in_game_state: 'pre_boss' })",
+      "note": "ZERO money: no price_local, no currency, no verified, no amount, no transaction_id required. purchase_attempt_id is the join key. sessions_before_purchase + days_since_install auto-stamped.",
+      "envelope": {
+        "event_id": "evt-0004",
+        "anon_id": "anon-0001",
+        "session_id": "s-0001",
+        "name": "purchase",
+        "kind": "purchase",
+        "client_event_time": 1752840180000,
+        "props": {
+          "purchase_attempt_id": "pa-0001",
+          "source": "client",
+          "sessions_before_purchase": 1,
+          "days_since_install": 0,
+          "player_level": 12,
+          "region": "EU",
+          "in_game_state": "pre_boss"
+        }
+      }
+    },
+    {
+      "case": "identify-alias-edge",
+      "verb": "identify('u-1')  [first identify after anon-only span]",
+      "note": "One-off identity edge (Foundation §4.6): carries (anon_id, user_id) so a future retroactive stitch stays possible. No history merge in v1.",
+      "envelope": {
+        "event_id": "evt-0005",
+        "user_id": "u-1",
+        "anon_id": "anon-0001",
+        "session_id": "s-0001",
+        "name": "identify",
+        "kind": "generic",
+        "client_event_time": 1752840240000,
+        "props": { "alias": { "anon_id": "anon-0001", "user_id": "u-1" } }
+      }
+    },
+    {
+      "case": "session-terminal-timeout",
+      "verb": "[inactivity timeout elapses]",
+      "note": "Exactly ONE terminal session event. end = true last_activity (never inflated to last_activity + timeout). reason ∈ {timeout, app_close, reconciled}.",
+      "envelope": {
+        "event_id": "evt-0006",
+        "anon_id": "anon-0001",
+        "session_id": "s-0001",
+        "name": "session",
+        "kind": "session",
+        "client_event_time": 1752840180000,
+        "props": {
+          "session_id": "s-0001",
+          "session_start_time": 1752840000000,
+          "session_end_time": 1752840180000,
+          "duration_ms": 180000,
+          "reason": "timeout"
+        }
+      }
+    },
+    {
+      "case": "session-terminal-reconciled",
+      "verb": "[init after a killed app with a persisted open-session record]",
+      "note": "Reconcile-at-init: closes the orphan with the persisted last_activity, reason=reconciled. Carries the ORIGINAL start time (bridge 02.5).",
+      "envelope": {
+        "event_id": "evt-0007",
+        "anon_id": "anon-0001",
+        "session_id": "s-0001",
+        "name": "session",
+        "kind": "session",
+        "client_event_time": 1752840150000,
+        "props": {
+          "session_id": "s-0001",
+          "session_start_time": 1752840000000,
+          "session_end_time": 1752840150000,
+          "duration_ms": 150000,
+          "reason": "reconciled"
+        }
+      }
+    }
+  ]
+}

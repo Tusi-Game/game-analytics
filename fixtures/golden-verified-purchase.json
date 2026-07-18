@@ -1,0 +1,150 @@
+{
+  "_doc": "R4 golden SERVER-SDK verified-purchase emissions (spec 010 §3 / [006-monetization §3]). Consumed by the server SDK conformance tests AND ingest/monetization tests. Each entry maps a verifiedPurchase() input to the EXPECTED wire envelope: kind=purchase, source=server, the full [006 §3] required-field set inside props, NO normalized/converted amount, NO top-level field outside Foundation §1.1, NO game_id/session_id/anon_id. Static event_id is a placeholder (SDK mints a UUID at runtime).",
+  "emissions": [
+    {
+      "case": "verified-prod-purchase-with-attempt-id",
+      "input": {
+        "userId": "u-1",
+        "transactionId": "T1",
+        "originalTransactionId": "OT1",
+        "productId": "gem_bundle_large",
+        "productCategory": "consumable",
+        "priceLocal": 4.99,
+        "currency": "USD",
+        "verified": true,
+        "environment": "prod",
+        "purchaseAttemptId": "pa-0001"
+      },
+      "envelope": {
+        "event_id": "evt-p-0001",
+        "user_id": "u-1",
+        "name": "purchase",
+        "kind": "purchase",
+        "client_event_time": 1752840000000,
+        "props": {
+          "source": "server",
+          "transaction_id": "T1",
+          "original_transaction_id": "OT1",
+          "product_id": "gem_bundle_large",
+          "product_category": "consumable",
+          "price_local": 4.99,
+          "currency": "USD",
+          "verified": true,
+          "environment": "prod",
+          "purchase_attempt_id": "pa-0001"
+        }
+      },
+      "forbidden_prop_keys": ["normalized_amount", "normalized_revenue", "fx_rate", "amount_usd", "provenance"],
+      "forbidden_top_level_keys": ["game_id", "server_received_time", "session_id", "anon_id", "provenance", "source"]
+    },
+    {
+      "case": "verified-false-consumes-no-slot",
+      "note": "verified=false is accepted-but-ineligible (zero revenue, raw-file audit only). Still one conformant envelope.",
+      "input": {
+        "userId": "u-2",
+        "transactionId": "T2",
+        "originalTransactionId": "OT2",
+        "productId": "starter_pack",
+        "productCategory": "consumable",
+        "priceLocal": 0.99,
+        "currency": "USD",
+        "verified": false,
+        "environment": "prod"
+      },
+      "envelope": {
+        "event_id": "evt-p-0002",
+        "user_id": "u-2",
+        "name": "purchase",
+        "kind": "purchase",
+        "client_event_time": 1752840060000,
+        "props": {
+          "source": "server",
+          "transaction_id": "T2",
+          "original_transaction_id": "OT2",
+          "product_id": "starter_pack",
+          "product_category": "consumable",
+          "price_local": 0.99,
+          "currency": "USD",
+          "verified": false,
+          "environment": "prod"
+        }
+      },
+      "forbidden_prop_keys": ["normalized_amount", "provenance"],
+      "forbidden_top_level_keys": ["game_id", "session_id", "anon_id"]
+    },
+    {
+      "case": "sandbox-accepted-ineligible",
+      "note": "environment=sandbox is accepted-but-ineligible (consumes no transaction_id slot toward revenue).",
+      "input": {
+        "userId": "u-3",
+        "transactionId": "T3",
+        "originalTransactionId": "OT3",
+        "productId": "gem_bundle_small",
+        "productCategory": "consumable",
+        "priceLocal": 1.99,
+        "currency": "USD",
+        "verified": true,
+        "environment": "sandbox"
+      },
+      "envelope": {
+        "event_id": "evt-p-0003",
+        "user_id": "u-3",
+        "name": "purchase",
+        "kind": "purchase",
+        "client_event_time": 1752840120000,
+        "props": {
+          "source": "server",
+          "transaction_id": "T3",
+          "original_transaction_id": "OT3",
+          "product_id": "gem_bundle_small",
+          "product_category": "consumable",
+          "price_local": 1.99,
+          "currency": "USD",
+          "verified": true,
+          "environment": "sandbox"
+        }
+      },
+      "forbidden_prop_keys": ["normalized_amount"],
+      "forbidden_top_level_keys": ["game_id"]
+    },
+    {
+      "case": "non-usd-no-fx",
+      "note": "price_local + ISO currency raw; the SDK NEVER normalizes/converts (Q8). The platform does FX downstream.",
+      "input": {
+        "userId": "u-4",
+        "transactionId": "T4",
+        "originalTransactionId": "OT4",
+        "productId": "battle_pass",
+        "productCategory": "subscription",
+        "priceLocal": 250000,
+        "currency": "IRR",
+        "verified": true,
+        "environment": "prod",
+        "purchaseAttemptId": "pa-0004",
+        "refunded": false
+      },
+      "envelope": {
+        "event_id": "evt-p-0004",
+        "user_id": "u-4",
+        "name": "purchase",
+        "kind": "purchase",
+        "client_event_time": 1752840180000,
+        "props": {
+          "source": "server",
+          "transaction_id": "T4",
+          "original_transaction_id": "OT4",
+          "product_id": "battle_pass",
+          "product_category": "subscription",
+          "price_local": 250000,
+          "currency": "IRR",
+          "verified": true,
+          "environment": "prod",
+          "purchase_attempt_id": "pa-0004",
+          "refunded": false
+        }
+      },
+      "forbidden_prop_keys": ["normalized_amount", "normalized_revenue", "fx_rate", "price_usd"],
+      "forbidden_top_level_keys": ["game_id"]
+    }
+  ]
+}

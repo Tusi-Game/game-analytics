@@ -4,6 +4,12 @@
   "description": "Self-hostable, multi-game analytics platform — NestJS scaffold (spec 000)",
   "private": true,
   "license": "UNLICENSED",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",

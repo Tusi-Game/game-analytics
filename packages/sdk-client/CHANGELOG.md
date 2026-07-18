@@ -1,0 +1,17 @@
+# @analytics-platform/analytics-sdk
+
+## 0.1.0
+
+Initial release (spec 009-client-sdk). Client / browser analytics SDK:
+
+- One-call `init` with client-key (`pk_`) prefix fail-fast (a secret `sk_`
+  credential is refused before any network call).
+- Capture verbs: `track`, `economy`, `newPurchaseAttempt`, `purchaseContext`
+  (zero-money companion), `identify` (+ one-off alias edge), `appClose`, `flush`.
+- Session tracker executing [003-sessions §1]: lazy start, monotonic inactivity
+  timer, single terminal event, reconcile-at-init.
+- Persistent offline queue (IndexedDB → localStorage → memory), bounded
+  drop-oldest, client-side TTL (23 h), at-least-once transport with backoff +
+  jitter, `client_sent_time` stamped at flush, `sendBeacon` unload tail-flush.
+- Wire `v:1`, mandatory `sdk` descriptor, `/v1/events`, bearer auth.
+- Zero runtime dependencies; ESM + CJS + browser-global + `.d.ts`.

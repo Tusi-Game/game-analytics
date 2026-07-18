@@ -1,0 +1,60 @@
+{
+  "name": "@analytics-platform/analytics-sdk",
+  "version": "0.1.0",
+  "description": "Browser / game analytics client SDK — canonical event emission, offline queue, sessions (spec 009-client-sdk). MIT.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/index.global.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/<org>/analytics-platform.git",
+    "directory": "packages/sdk-client"
+  },
+  "keywords": [
+    "analytics",
+    "game-analytics",
+    "sdk",
+    "telemetry",
+    "sessions"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "clean": "rm -rf dist coverage"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.13",
+    "fake-indexeddb": "^6.0.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.2"
+  }
+}

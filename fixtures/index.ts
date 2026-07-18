@@ -91,3 +91,53 @@ export function goldenExpectations(): GoldenExpectation[] {
     return { envelope: strip(event), expect: event._fixture };
   });
 }
+
+/* ------------------------------------------------------------------------ *
+ * Golden SDK emissions (R4, spec 009/010) — one physical set, consumed by    *
+ * the client/server SDK conformance tests AND the ingest tests. Because the  *
+ * SDKs mint ULIDs/UUIDs at runtime, conformance asserts SHAPE + field-names  *
+ * + the fixed non-id fields, NEVER the static placeholder ids below.         *
+ * ------------------------------------------------------------------------ */
+
+/** One golden client emission: the verb it models + the expected wire envelope. */
+export interface GoldenClientEmission {
+  case: string;
+  verb: string;
+  note?: string;
+  envelope: EventEnvelope;
+}
+
+function readJson<T>(file: string): T {
+  const parsed: unknown = JSON.parse(readFileSync(join(FIXTURES_DIR, file), 'utf8'));
+  return parsed as T;
+}
+
+/** Load the golden client-SDK emissions (generic, economy, companion, session…). */
+export function goldenClientEmissions(): GoldenClientEmission[] {
+  const doc = readJson<{ emissions: GoldenClientEmission[] }>('golden-client-emissions.json');
+  if (!Array.isArray(doc.emissions)) {
+    throw new Error('[fixtures] golden-client-emissions.json has no emissions array');
+  }
+  return doc.emissions;
+}
+
+/** One golden server verified-purchase emission: input → expected wire envelope. */
+export interface GoldenPurchaseEmission {
+  case: string;
+  note?: string;
+  input: Record<string, unknown>;
+  envelope: EventEnvelope;
+  /** Prop keys that must NEVER appear (no normalized amount, no provenance…). */
+  forbidden_prop_keys: string[];
+  /** Top-level envelope keys that must NEVER appear (game_id, session_id…). */
+  forbidden_top_level_keys: string[];
+}
+
+/** Load the golden server-SDK verified-purchase emissions. */
+export function goldenVerifiedPurchases(): GoldenPurchaseEmission[] {
+  const doc = readJson<{ emissions: GoldenPurchaseEmission[] }>('golden-verified-purchase.json');
+  if (!Array.isArray(doc.emissions)) {
+    throw new Error('[fixtures] golden-verified-purchase.json has no emissions array');
+  }
+  return doc.emissions;
+}

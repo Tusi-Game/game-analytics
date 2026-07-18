@@ -1,0 +1,60 @@
+name: Publish SDK
+
+# Tag-triggered publish for the two npm SDK packages ONLY. Deliberately SEPARATE
+# from ci.yml (which gates the NestJS platform). Uses npm **trusted publishing**
+# (OIDC) — there is NO NPM_TOKEN secret anywhere; the registry mints a
+# short-lived token from the workflow's OIDC identity, and provenance
+# attestations are generated automatically.
+#
+# R13: the npm <org> scope is operator input. Until it is chosen (and the trusted
+# publisher is configured on the registry for that concrete scope), this workflow
+# will not authenticate — publishing is gated on the operator, NOT on development
+# or on CI. The wire `sdk.name` (analytics-sdk / analytics-sdk-server) is stable
+# regardless.
+
+on:
+  push:
+    tags:
+      # Tag shapes: sdk-client-vX.Y.Z / sdk-server-vX.Y.Z (or the changesets
+      # release-tag convention @<org>/analytics-sdk@X.Y.Z).
+      - 'sdk-client-v*'
+      - 'sdk-server-v*'
+      - '@*/analytics-sdk@*'
+      - '@*/analytics-sdk-server@*'
+
+# id-token:write is REQUIRED for OIDC trusted publishing + provenance.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      # npm >= 11.5 is required for OIDC trusted publishing.
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+
+      # Build + test the SDK packages before publishing (workspace-scoped so the
+      # NestJS platform is never built here).
+      - run: npm run build --workspace=packages/sdk-client --workspace=packages/sdk-server
+      - run: npm run test --workspace=packages/sdk-client --workspace=packages/sdk-server
+
+      # Publish with provenance. --provenance requires id-token:write (above).
+      # No NODE_AUTH_TOKEN / NPM_TOKEN — the OIDC trusted publisher authenticates.
+      - name: Publish (OIDC trusted publishing + provenance)
+        run: |
+          npm publish --workspace=packages/sdk-client --provenance --access public || true
+          npm publish --workspace=packages/sdk-server --provenance --access public || true
+        # NOTE: the `|| true` guard keeps this workflow from hard-failing before
+        # the <org> scope + trusted-publisher are configured (R13). Remove it once
+        # the operator has provisioned the concrete npm org.
