@@ -11,6 +11,12 @@ import { ReadModelService, type DayCounts } from './read-model.service';
 import { utcDay } from '../common/kernel/logical-day';
 import { SessionReadService, type SessionDayView, type SessionWindowView } from '../sessions/session-read.service';
 import { RetentionReadService, type HeadlineView, type RetentionCellView } from '../sessions/retention-read.service';
+import {
+  EconomyReadService,
+  type EconomyDayView,
+  type MoneySupplyView,
+  type SupplyTrendPoint,
+} from '../economy/economy-read.service';
 
 @Controller('v1/dashboard')
 @UseGuards(OperatorSessionGuard)
@@ -19,6 +25,8 @@ export class ReadModelController {
     private readonly readModel: ReadModelService,
     private readonly sessionRead: SessionReadService,
     private readonly retentionRead: RetentionReadService,
+    // 004-economy read surface (appended additively).
+    private readonly economyRead: EconomyReadService,
   ) {}
 
   /**
@@ -73,5 +81,62 @@ export class ReadModelController {
   @Get(':gameId/retention/heatmap')
   async retentionHeatmap(@Param('gameId') gameId: string): Promise<RetentionCellView[]> {
     return this.retentionRead.heatmap(gameId);
+  }
+
+  // ---- 004-economy read endpoints (appended additively) --------------------
+
+  /**
+   * `GET /v1/dashboard/:gameId/economy?currency=&day=&trusted=` — per game ×
+   * currency × day source/sink/net/ratio + top faucets/drains, sealed from
+   * Postgres, open day live-merged (provisional). `trusted=1` = server-only slice.
+   */
+  @Get(':gameId/economy')
+  async economy(
+    @Param('gameId') gameId: string,
+    @Query('currency') currency: string,
+    @Query('day') day?: string,
+    @Query('trusted') trusted?: string,
+  ): Promise<EconomyDayView> {
+    const resolvedDay = day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : utcDay(Date.now());
+    return this.economyRead.economyDay(gameId, currency, resolvedDay, {
+      provenanceFilter: trusted === '1' ? 'server' : undefined,
+    });
+  }
+
+  /** `GET /v1/dashboard/:gameId/economy/currencies` — observed currency picker. */
+  @Get(':gameId/economy/currencies')
+  async economyCurrencies(@Param('gameId') gameId: string): Promise<string[]> {
+    return this.economyRead.currencies(gameId);
+  }
+
+  /**
+   * `GET /v1/dashboard/:gameId/economy/supply?currency=&trusted=` — current money
+   * supply + depth (over BALANCE_SNAPSHOT; dormant holders counted).
+   */
+  @Get(':gameId/economy/supply')
+  async economySupply(
+    @Param('gameId') gameId: string,
+    @Query('currency') currency: string,
+    @Query('trusted') trusted?: string,
+  ): Promise<MoneySupplyView> {
+    return this.economyRead.moneySupply(gameId, currency, {
+      provenanceFilter: trusted === '1' ? 'server' : undefined,
+    });
+  }
+
+  /**
+   * `GET /v1/dashboard/:gameId/economy/supply/trend?currency=&from=&to=` —
+   * money-supply level trend + cumulative-net-flow divergence diagnostic.
+   */
+  @Get(':gameId/economy/supply/trend')
+  async economySupplyTrend(
+    @Param('gameId') gameId: string,
+    @Query('currency') currency: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ): Promise<SupplyTrendPoint[]> {
+    const f = /^\d{4}-\d{2}-\d{2}$/.test(from ?? '') ? from : utcDay(Date.now());
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(to ?? '') ? to : utcDay(Date.now());
+    return this.economyRead.supplyTrend(gameId, currency, f, t);
   }
 }

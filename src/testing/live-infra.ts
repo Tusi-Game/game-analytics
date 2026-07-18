@@ -33,6 +33,11 @@ import { SessionDayResultEntity } from '../database/entities/session-day-result.
 import { ActiveUserDayEntity } from '../database/entities/active-user-day.entity';
 import { CohortEntity } from '../database/entities/cohort.entity';
 import { RetentionCellEntity } from '../database/entities/retention-cell.entity';
+// 004-economy entities.
+import { EconomyFlowResultEntity } from '../database/entities/economy-flow-result.entity';
+import { EconomyFlowSegmentResultEntity } from '../database/entities/economy-flow-segment-result.entity';
+import { BalanceSnapshotEntity } from '../database/entities/balance-snapshot.entity';
+import { EconomySupplyDayEntity } from '../database/entities/economy-supply-day.entity';
 
 const REDIS_HOST = process.env.REDIS_HOST ?? '127.0.0.1';
 const REDIS_PORT = Number(process.env.REDIS_PORT ?? 6379);
@@ -91,6 +96,11 @@ export async function connectPostgresOrNull(): Promise<DataSource | null> {
       ActiveUserDayEntity,
       CohortEntity,
       RetentionCellEntity,
+      // 004-economy.
+      EconomyFlowResultEntity,
+      EconomyFlowSegmentResultEntity,
+      BalanceSnapshotEntity,
+      EconomySupplyDayEntity,
     ],
     namingStrategy: new SnakeNamingStrategy(),
     synchronize: true, // TEST-ONLY: build the schema in an ephemeral test DB.

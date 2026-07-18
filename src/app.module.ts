@@ -9,6 +9,7 @@ import { SecurityModule } from './security/security.module';
 import { IngestModule } from './ingest/ingest.module';
 import { WorkersModule } from './workers/workers.module';
 import { SessionsModule } from './sessions/sessions.module';
+import { EconomyModule } from './economy/economy.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PanelModule } from './panel/panel.module';
@@ -34,6 +35,10 @@ import { HealthController } from './health/health.controller';
     // validator/durable/hot triple + sess/act/ret flush plans with the dispatcher
     // seam (additive). MUST come after WorkersModule (which owns the dispatchers).
     SessionsModule,
+    // 004-economy — registers the `economy` kind's validator/durable(Noop)/hot
+    // triple + eco/bal flush plans with the dispatcher seam (additive). MUST come
+    // after WorkersModule (which owns the dispatchers).
+    EconomyModule,
     GdprModule,
     DashboardModule,
     PanelModule,

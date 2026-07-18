@@ -59,6 +59,19 @@ export const GAME_CONFIG_DEFAULTS = {
   // 005-retention knobs (§6). Targets forward-only (widening); min-cohort display-only.
   retention_day_targets: [1, 7, 30],
   retention_min_cohort_size: 30,
+  // 004-economy knobs (§7). APPENDED additively — no collision with the above.
+  //  - top_n_reasons: retroactive display re-rank over stored per-reason totals.
+  //  - ratio_min_events: display-only low-volume mask on sink_ratio (per-leg count).
+  //  - currency_allowlist: empty = accept-all (auto-register); forward-only.
+  //  - currency_cap_per_game: distinct-currency budget; over-cap → `other` (R3).
+  //  - depth_capture_mode: 'full' = depth ON (≈ spec `last_known_balance`); 'off' =
+  //    depth OFF. Reconciles the config-contract enum ['off','shallow','full'] with
+  //    spec §7 ['last_known_balance','off'] — see EconomyConfigService.
+  economy_top_n_reasons: 10,
+  economy_ratio_min_events: 100,
+  economy_currency_allowlist: [],
+  economy_currency_cap_per_game: 500,
+  economy_depth_capture_mode: 'full',
 } as const;
 
 interface CacheEntry {

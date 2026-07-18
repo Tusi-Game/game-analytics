@@ -230,6 +230,17 @@ export const CONFIG_CONTRACTS: readonly KnobContract[] = [
     note: 'Sink-ratio low-volume display guard; display-only sample-size mask.',
   },
   {
+    // Distinct-currency budget per game; over-cap currencies collapse to the `other`
+    // overflow bucket (KEPT + counted, R3). Forward-only (never retro-collapses
+    // sealed cells) — mirrors event_name_cap_per_game's posture for currencies.
+    key: 'economy_currency_cap_per_game',
+    owner: '004-economy',
+    effect: 'forward-only',
+    scope: 'per-game',
+    contract: { type: 'int', min: 1, max: 100_000 },
+    note: 'Distinct-currency cap; forward-only (overflow tallied as `other`, R3/§H-4).',
+  },
+  {
     key: 'level_bucket_boundaries',
     owner: '004-economy',
     effect: 'forward-only',
