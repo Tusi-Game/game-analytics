@@ -27,6 +27,12 @@ import { GameSdkKeyEntity } from '../database/entities/game-sdk-key.entity';
 import { GameServerCredentialEntity } from '../database/entities/game-server-credential.entity';
 import { ConfigAuditEntity } from '../database/entities/config-audit.entity';
 import { GdprRequestAuditEntity } from '../database/entities/gdpr-request-audit.entity';
+// 003-sessions + 005-retention (combined) entities.
+import { UserSpineEntity } from '../database/entities/user-spine.entity';
+import { SessionDayResultEntity } from '../database/entities/session-day-result.entity';
+import { ActiveUserDayEntity } from '../database/entities/active-user-day.entity';
+import { CohortEntity } from '../database/entities/cohort.entity';
+import { RetentionCellEntity } from '../database/entities/retention-cell.entity';
 
 const REDIS_HOST = process.env.REDIS_HOST ?? '127.0.0.1';
 const REDIS_PORT = Number(process.env.REDIS_PORT ?? 6379);
@@ -79,6 +85,12 @@ export async function connectPostgresOrNull(): Promise<DataSource | null> {
       GameServerCredentialEntity,
       ConfigAuditEntity,
       GdprRequestAuditEntity,
+      // 003-sessions + 005-retention (combined).
+      UserSpineEntity,
+      SessionDayResultEntity,
+      ActiveUserDayEntity,
+      CohortEntity,
+      RetentionCellEntity,
     ],
     namingStrategy: new SnakeNamingStrategy(),
     synchronize: true, // TEST-ONLY: build the schema in an ephemeral test DB.

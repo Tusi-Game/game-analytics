@@ -8,6 +8,7 @@ import { CommonModule } from './common/common.module';
 import { SecurityModule } from './security/security.module';
 import { IngestModule } from './ingest/ingest.module';
 import { WorkersModule } from './workers/workers.module';
+import { SessionsModule } from './sessions/sessions.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PanelModule } from './panel/panel.module';
@@ -29,6 +30,10 @@ import { HealthController } from './health/health.controller';
     SecurityModule,
     IngestModule,
     WorkersModule,
+    // 003-sessions + 005-retention (combined) — registers the `session` kind's
+    // validator/durable/hot triple + sess/act/ret flush plans with the dispatcher
+    // seam (additive). MUST come after WorkersModule (which owns the dispatchers).
+    SessionsModule,
     GdprModule,
     DashboardModule,
     PanelModule,

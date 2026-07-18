@@ -52,6 +52,13 @@ export const GAME_CONFIG_DEFAULTS = {
   erasure_purchase_mode: 'detach',
   // Enable the offline strict raw-rewrite tool (operator-run, never automatic).
   strict_raw_rewrite: false,
+  // 003-sessions knobs (§6). All forward-only.
+  session_inactivity_timeout_min: 30,
+  session_max_duration_cap_min: 720,
+  session_min_duration_ms: 0,
+  // 005-retention knobs (§6). Targets forward-only (widening); min-cohort display-only.
+  retention_day_targets: [1, 7, 30],
+  retention_min_cohort_size: 30,
 } as const;
 
 interface CacheEntry {
