@@ -62,6 +62,16 @@ The repo uses [changesets](https://github.com/changesets/changesets). Day-to-day
    from the accumulated changesets. (An initial changeset for the `0.1.0` release
    already exists at `.changeset/initial-sdk-release.md`.)
 
+   > **One-time org setting required.** `release-pr.yml` needs GitHub Actions to be
+   > allowed to open pull requests. This is disabled by the `Tusi-Game` **org**
+   > policy, which overrides the repo setting, so enable it at the org level:
+   > **Org → Settings → Actions → General → Workflow permissions →** check
+   > *"Allow GitHub Actions to create and approve pull requests"* (and set
+   > read/write token permissions). Until this is on, the workflow fails with
+   > *"GitHub Actions is not permitted to create or approve pull requests"* — you
+   > can instead run `npx changeset version` locally, commit, and open the PR by
+   > hand (see the manual fallback below).
+
 3. **Merge the Version PR.** This lands the version bump on `master`.
 
 4. **Tag to publish.** `publish-sdk.yml` triggers on the release tags. After the
@@ -78,6 +88,17 @@ The repo uses [changesets](https://github.com/changesets/changesets). Day-to-day
 The publish steps emit a **warning (not a hard failure)** if a version is already
 published or the trusted publisher isn't configured yet, so a premature run is a
 no-op rather than a red build. Genuine auth/build failures still fail the job.
+
+### Manual release (no Version-PR workflow)
+
+If you'd rather not enable the org PR-creation setting, cut releases by hand:
+
+```bash
+npx changeset version         # bump versions + rewrite CHANGELOGs from changesets
+git add -A && git commit -m "chore: version SDK packages"
+git push
+# then tag as in step 4 above to trigger the OIDC publish
+```
 
 ---
 
