@@ -27,3 +27,6 @@ npm-debug.log*
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Write-ahead raw day-files (local dev output; the volume mount is /app/raw)
+/raw/

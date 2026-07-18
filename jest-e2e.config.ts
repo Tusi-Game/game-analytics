@@ -16,6 +16,11 @@ const config: Config = {
     '^@redis/(.*)$': '<rootDir>/src/redis/$1',
     '^@queue/(.*)$': '<rootDir>/src/queue/$1',
   },
+  // The live-stack e2e opens BullMQ Worker + ioredis connections whose internal
+  // schedulers can outlive app.close(); force a clean process exit so the gate
+  // terminates deterministically instead of hanging on a lingering handle.
+  forceExit: true,
+  testTimeout: 30000,
 };
 
 export default config;

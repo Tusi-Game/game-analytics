@@ -1,0 +1,34 @@
+# Reference reverse-proxy / TLS terminator (T-00.7 / T-00.85, ops-envelope §9).
+#
+# Caddy terminates TLS and forwards to the NestJS app on :3000, stamping
+# X-Forwarded-Proto so the app's IngestAuthGuard trusts the scheme (REQUIRE_TLS
+# posture). Replace `analytics.example.com` with the real host; Caddy then
+# auto-provisions + renews a cert.
+#
+# SANCTIONS / INTERNET-SHUTDOWN GUIDANCE (ops-envelope §9): during a shutdown
+# Let's Encrypt HTTP-01 AND DNS-01 can both fail and certs expire → HTTPS goes
+# dark. Mitigations:
+#   - use DNS-01 via an EXTERNAL nameserver (a `tls { dns <provider> }` block with
+#     an offshore DNS API), so validation does not need inbound reachability;
+#   - obtain LONG-LIVED certs where the CA allows, or a commercial cert;
+#   - monitor cert expiry and ALERT well before it (see docs/reverse-proxy.md) so
+#     a stalled renewal is caught before the cert lapses.
+
+analytics.example.com {
+	encode gzip
+	# Forward the client-facing scheme so the app's TLS-refusal guard passes.
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+}
+
+# For a plain-IP / no-DNS dev box you can instead expose the app over Caddy's
+# internal self-signed CA:
+#
+#   :443 {
+#       tls internal
+#       reverse_proxy app:3000 {
+#           header_up X-Forwarded-Proto {scheme}
+#       }
+#   }

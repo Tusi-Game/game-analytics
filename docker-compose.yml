@@ -12,6 +12,12 @@ services:
     volumes:
       # Source volume mount → hot reload in dev. node_modules stays in-image.
       - ./src:/app/src
+      # Write-ahead raw day-files. Deliberately a SEPARATE volume from the Redis
+      # AOF (redisdata) so a raw-file fsync cannot starve the AOF fsync — they
+      # must not contend on one disk (T-00.5, ops-envelope §8). The raw-file
+      # writer itself is later scope (008-cold-storage / Unit 4); the volume is
+      # provisioned now so the durability layout is correct from the start.
+      - rawdata:/app/raw
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,10 +39,34 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: analytics-raw
+      # Raw day-file directory — the mount point of the dedicated `rawdata`
+      # volume (kept off the Redis AOF disk, T-00.5).
+      RAW_FILE_DIR: /app/raw
+      # Backpressure / rate-limit envelope (ops-envelope §3–§5). The byte cap
+      # MUST match the redis `--maxmemory` above so the door brakes before OOM.
+      REDIS_MAXMEMORY_BYTES: '3984588800' # 3800 MiB
+      MEMORY_WATERMARK_FRACTION: '0.8'
+      QUEUE_DEPTH_WATERMARK: '200000'
+      RETRY_AFTER_SECONDS: '5'
+      INGEST_EVENTS_PER_SEC_CAP: '200'
+      INGEST_RATE_BURST_EVENTS: '5000'
+      # Security posture (FR-029, ops-envelope §9). REQUIRE_TLS is FALSE in this
+      # dev compose (no proxy in the default `up`); enable it — and the caddy
+      # profile below — for a TLS-terminated deploy. SECRET_MASTER_KEY MUST be set
+      # from a Docker secret / env file in production (a DB dump then yields only
+      # ciphertext); the dev default is empty (envelope-encryption disabled).
+      REQUIRE_TLS: 'false'
+      SECRET_MASTER_KEY: '${SECRET_MASTER_KEY:-}'
+      ALLOWED_ORIGINS: '${ALLOWED_ORIGINS:-}'
 
   postgres:
     # postgres:16-alpine
     image: postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    # Host port mapping for local dev + host-run integration tests (the app
+    # reaches Postgres over the compose network regardless). Override the host
+    # side via ${DB_PORT:-5432} if 5432 is taken on the host.
+    ports:
+      - '${DB_PORT:-5432}:5432'
     environment:
       POSTGRES_USER: analytics
       POSTGRES_PASSWORD: analytics
@@ -52,7 +82,24 @@ services:
   redis:
     # redis:7-alpine
     image: redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
-    command: redis-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction
+    # maxmemory byte cap (ops-envelope §3 ≈ 3.8 GB) is now SET, consistent with
+    # the door watermark (REDIS_MAXMEMORY_BYTES / MEMORY_WATERMARK_FRACTION on the
+    # app): the fast-ack door 503s at 80 % (~3 GB) BEFORE `noeviction` OOM, so the
+    # counting path stays alive while the door sheds (T-00.4 / T-00.66). A modest
+    # dev VPS can lower this; keep the app's REDIS_MAXMEMORY_BYTES in step with it.
+    # `no-appendfsync-on-rewrite yes` avoids the AOF fsync stalling during rewrite
+    # (ops-envelope §8, AOF fsync-stall mitigation; raw dir is a separate volume).
+    command: >-
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory-policy noeviction
+      --maxmemory 3800mb
+      --no-appendfsync-on-rewrite yes
+    # Host port mapping for local dev + host-run integration tests (override via
+    # ${REDIS_PORT:-6379} if 6379 is taken on the host).
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
     volumes:
       - redisdata:/data
     healthcheck:
@@ -74,7 +121,74 @@ services:
     volumes:
       - miniodata:/data
 
+  # Reverse-proxy / TLS terminator (T-00.7 / T-00.85, ops-envelope §9). Behind
+  # the `proxy` profile so the DEFAULT `docker compose up` stays cert-free and
+  # single-command on a dev box; a TLS deploy runs
+  # `docker compose --profile proxy up` (and sets the app's REQUIRE_TLS=true).
+  # Caddy auto-provisions certs; see docs/reverse-proxy.md for the DNS-01 / long-
+  # lived-cert / cert-expiry-alert guidance for the sanctions/shutdown case.
+  caddy:
+    profiles: ['proxy']
+    # caddy:2-alpine
+    image: caddy@sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a
+    depends_on:
+      - app
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
+  # PITR backup sidecar (T-00.80, FR-028). Behind the `backup` profile so the
+  # default dev `up` is unchanged; a production deploy runs
+  # `docker compose --profile backup up -d` to get scheduled pg_basebackup + WAL
+  # archiving to MinIO. Backups are ENCRYPTED with SECRET_MASTER_KEY (held
+  # OUTSIDE Postgres, FR-029). See scripts/pitr-*.sh + docs/backup-restore.md.
+  pitr:
+    profiles: ['backup']
+    # postgres:16-alpine — reuse the pinned pg image (has pg_basebackup + psql).
+    image: postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    entrypoint: ['/bin/sh', '/scripts/pitr-backup.sh']
+    environment:
+      PGHOST: postgres
+      PGPORT: '5432'
+      PGUSER: analytics
+      PGPASSWORD: analytics
+      PGDATABASE: analytics
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: '9000'
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: analytics-backup
+      BACKUP_INTERVAL_SECONDS: '3600'
+      # Backup-encryption key — held outside Postgres (FR-029). Empty ⇒ the
+      # script refuses to run (fails loud rather than writing plaintext backups).
+      SECRET_MASTER_KEY: '${SECRET_MASTER_KEY:-}'
+    volumes:
+      - ./scripts:/scripts:ro
+      - backupstage:/stage
+
+# DEPLOYMENT REQUIREMENT — slewing NTP (T-00.6, Foundation §4.2). Containers
+# inherit the HOST clock; a stepped clock breaks skew-correction + the
+# monotonicity alarm. The single-VPS posture is a HOST requirement (not a
+# container): run `chronyd` on the host with a bounded `maxslewrate` and NEVER
+# `ntpd -g` / step-on-start. See docs/deployment-requirements.md for the exact
+# chrony.conf stanza. (Documented here rather than shipped as a privileged
+# time-daemon container, which would need host-clock capabilities.)
+
 volumes:
   pgdata:
   redisdata:
+  # Raw write-ahead day-files — separate spindle from redisdata (T-00.5).
+  rawdata:
   miniodata:
+  caddydata:
+  caddyconfig:
+  backupstage:

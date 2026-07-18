@@ -18,6 +18,10 @@ const config: Config = {
   },
   collectCoverageFrom: ['**/*.(t|j)s'],
   coverageDirectory: '../coverage',
+  // The live-infra integration specs open ioredis/TypeORM connections; force a
+  // clean process exit so a lingering handle cannot hang the gate.
+  forceExit: true,
+  testTimeout: 30000,
 };
 
 export default config;

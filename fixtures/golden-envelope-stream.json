@@ -1,0 +1,138 @@
+{
+  "v": 1,
+  "sdk": { "name": "golden-fixture-sdk", "version": "1.0.0" },
+  "events": [
+    {
+      "_fixture": { "case": "valid-generic", "verdict": "route", "bucket_name": "level_start", "note": "ordinary accepted generic event" },
+      "game_id": "game-42",
+      "user_id": "u-1",
+      "event_id": "evt-0001",
+      "name": "level_start",
+      "kind": "generic",
+      "client_event_time": 1752840000000,
+      "client_sent_time": 1752840000000,
+      "server_received_time": 1752840000000,
+      "props": { "level": 1 }
+    },
+    {
+      "_fixture": { "case": "valid-generic", "verdict": "route", "bucket_name": "level_start", "note": "same name different level type — feeds drift indicator" },
+      "game_id": "game-42",
+      "user_id": "u-2",
+      "event_id": "evt-0002",
+      "name": "level_start",
+      "kind": "generic",
+      "client_event_time": 1752840060000,
+      "client_sent_time": 1752840060000,
+      "server_received_time": 1752840060000,
+      "props": { "level": "boss" }
+    },
+    {
+      "_fixture": { "case": "duplicate-windowed", "verdict": "route-duplicate", "bucket_name": "level_start", "note": "same event_id as evt-0001 within 24h → appended but not counted" },
+      "game_id": "game-42",
+      "user_id": "u-1",
+      "event_id": "evt-0001",
+      "name": "level_start",
+      "kind": "generic",
+      "client_event_time": 1752840120000,
+      "client_sent_time": 1752840120000,
+      "server_received_time": 1752840120000,
+      "props": { "level": 1 }
+    },
+    {
+      "_fixture": { "case": "valid-generic", "verdict": "route", "bucket_name": "session_ping", "note": "second distinct name" },
+      "game_id": "game-42",
+      "user_id": "u-3",
+      "event_id": "evt-0003",
+      "name": "session_ping",
+      "kind": "generic",
+      "client_event_time": 1752840180000,
+      "client_sent_time": 1752840180000,
+      "server_received_time": 1752840180000,
+      "props": {}
+    },
+    {
+      "_fixture": { "case": "valid-generic", "verdict": "route", "bucket_name": "coins_earned", "note": "third distinct name" },
+      "game_id": "game-42",
+      "user_id": "u-4",
+      "event_id": "evt-0004",
+      "name": "coins_earned",
+      "kind": "generic",
+      "client_event_time": 1752840240000,
+      "client_sent_time": 1752840240000,
+      "server_received_time": 1752840240000,
+      "props": { "amount": 50 }
+    },
+    {
+      "_fixture": { "case": "reserved-name-override", "verdict": "route", "resolved_kind": "session", "note": "name=session forces typed session path regardless of declared kind=generic (§H-2)" },
+      "game_id": "game-42",
+      "user_id": "u-5",
+      "event_id": "evt-0005",
+      "name": "session",
+      "kind": "generic",
+      "client_event_time": 1752840300000,
+      "client_sent_time": 1752840300000,
+      "server_received_time": 1752840300000,
+      "props": { "session_id": "s-5" }
+    },
+    {
+      "_fixture": { "case": "reserved-name-override-invalid", "verdict": "quarantine", "reason": "quarantined_typed", "resolved_kind": "purchase", "note": "name=purchase, declared generic, junk payload → strict path → quarantined not registered as generic (#10)" },
+      "game_id": "game-42",
+      "user_id": "u-6",
+      "event_id": "evt-0006",
+      "name": "purchase",
+      "kind": "generic",
+      "client_event_time": 1752840360000,
+      "client_sent_time": 1752840360000,
+      "server_received_time": 1752840360000,
+      "props": { "junk": true }
+    },
+    {
+      "_fixture": { "case": "malformed-economy", "verdict": "quarantine", "reason": "quarantined_typed", "resolved_kind": "economy", "note": "declared economy with invalid payload → quarantined_typed, feeds nothing (#10)" },
+      "game_id": "game-42",
+      "user_id": "u-7",
+      "event_id": "evt-0007",
+      "name": "coins_spent",
+      "kind": "economy",
+      "client_event_time": 1752840420000,
+      "client_sent_time": 1752840420000,
+      "server_received_time": 1752840420000,
+      "props": { "malformed": "no-currency" }
+    },
+    {
+      "_fixture": { "case": "nameless-drop", "verdict": "drop", "reason": "nameless", "note": "empty name → drop-and-tally, never raw-appended" },
+      "game_id": "game-42",
+      "user_id": "u-8",
+      "event_id": "evt-0008",
+      "name": "   ",
+      "kind": "generic",
+      "client_event_time": 1752840480000,
+      "client_sent_time": 1752840480000,
+      "server_received_time": 1752840480000,
+      "props": {}
+    },
+    {
+      "_fixture": { "case": "missing-event-id-drop", "verdict": "drop", "reason": "unparseable", "note": "missing event_id → drop+unparseable+no append (OF-1 design default)" },
+      "game_id": "game-42",
+      "user_id": "u-9",
+      "event_id": "",
+      "name": "level_end",
+      "kind": "generic",
+      "client_event_time": 1752840540000,
+      "client_sent_time": 1752840540000,
+      "server_received_time": 1752840540000,
+      "props": {}
+    },
+    {
+      "_fixture": { "case": "trust-boundary-isolation", "verdict": "route", "bucket_name": "level_start", "note": "body game_id=game-99 but door stamps the credential's game — lands under the authed game, never game-99 (#9)" },
+      "game_id": "game-99",
+      "user_id": "u-10",
+      "event_id": "evt-0010",
+      "name": "level_start",
+      "kind": "generic",
+      "client_event_time": 1752840600000,
+      "client_sent_time": 1752840600000,
+      "server_received_time": 1752840600000,
+      "props": { "level": 2 }
+    }
+  ]
+}

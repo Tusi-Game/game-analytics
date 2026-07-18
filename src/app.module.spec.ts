@@ -1,18 +1,26 @@
 import { Global, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { DataSource } from 'typeorm';
 import { AppModule } from './app.module';
 import { DatabaseModule } from './database/database.module';
 import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
 import { REDIS_CLIENT } from './redis/redis.constants';
-import { INGEST_QUEUE_PROVIDER } from './queue/queue.constants';
+import { INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION } from './queue/queue.constants';
 
 /**
  * Inert stand-ins for the infrastructure modules so the DI graph can be compiled
  * without a live Postgres/Redis. They export the same tokens (REDIS_CLIENT, the
- * BullMQ queue) that story modules depend on, backed by no-op doubles.
+ * BullMQ queue, the TypeORM DataSource) that story modules depend on, backed by
+ * no-op doubles.
  */
-@Module({})
+@Global()
+@Module({
+  // The flush engine injects the TypeORM DataSource; provide a no-op double so
+  // the graph compiles without a live Postgres.
+  providers: [{ provide: DataSource, useValue: { query: jest.fn() } }],
+  exports: [DataSource],
+})
 class FakeDatabaseModule {}
 
 @Global()
@@ -24,8 +32,11 @@ class FakeRedisModule {}
 
 @Global()
 @Module({
-  providers: [{ provide: INGEST_QUEUE_PROVIDER, useValue: { close: jest.fn(), add: jest.fn() } }],
-  exports: [INGEST_QUEUE_PROVIDER],
+  providers: [
+    { provide: INGEST_QUEUE_PROVIDER, useValue: { close: jest.fn(), add: jest.fn() } },
+    { provide: INGEST_WORKER_CONNECTION, useValue: { connection: { quit: jest.fn(), on: jest.fn() } } },
+  ],
+  exports: [INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION],
 })
 class FakeQueueModule {}
 
@@ -40,6 +51,7 @@ class FakeQueueModule {}
 describe('AppModule', () => {
   // Minimal env so the config loader (fail-fast on missing keys) is satisfied.
   const requiredEnv: Record<string, string> = {
+    NODE_ENV: 'test',
     DB_HOST: 'localhost',
     DB_PORT: '5432',
     DB_USER: 'analytics',

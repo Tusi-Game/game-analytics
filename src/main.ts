@@ -17,6 +17,11 @@ async function bootstrap(): Promise<void> {
   // registered globally in CommonModule via APP_FILTER / APP_INTERCEPTOR.)
   app.useGlobalPipes(new AppValidationPipe());
 
+  // Ingest batches are legitimately large — raise the JSON body limit above the
+  // Express 100 kb default so a full batch is not rejected with 413. The queue
+  // depth / rate-limit shedding (Unit 4) governs load, not the parser limit.
+  app.use(express.json({ limit: process.env.INGEST_BODY_LIMIT ?? '10mb' }));
+
   // Panel view engine: Nunjucks over Express. `__dirname` is `src` under
   // ts-node and `dist` after `nest build` (assets are copied by nest-cli),
   // so panel/views resolves correctly in both.

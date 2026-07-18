@@ -5,6 +5,8 @@ import { OperatorSessionGuard } from './guards/operator-session.guard';
 import { AppValidationPipe } from './pipes/validation.pipe';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
+import { RehydrateService } from './redis-keys/rehydrate';
+import { WindowedDedupGate, UnimplementedPurchaseDedupGate, PURCHASE_DEDUP_GATE } from './kernel/dedup';
 
 /**
  * Shared kernel module (@Global).
@@ -27,10 +29,22 @@ import { LoggingInterceptor } from './interceptors/logging.interceptor';
     SdkKeyGuard,
     OperatorSessionGuard,
     AppValidationPipe,
+    // Rehydrate-on-miss + seeded-marker machinery (foundation §2.3, P10).
+    RehydrateService,
+    // Dedup — windowed (002-owned) + the durable purchase-gate SEAM (006 fills).
+    WindowedDedupGate,
+    { provide: PURCHASE_DEDUP_GATE, useClass: UnimplementedPurchaseDedupGate },
     // Global exception filter and request-logging interceptor.
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
   ],
-  exports: [SdkKeyGuard, OperatorSessionGuard, AppValidationPipe],
+  exports: [
+    SdkKeyGuard,
+    OperatorSessionGuard,
+    AppValidationPipe,
+    RehydrateService,
+    WindowedDedupGate,
+    PURCHASE_DEDUP_GATE,
+  ],
 })
 export class CommonModule {}

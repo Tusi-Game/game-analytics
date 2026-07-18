@@ -1,18 +1,23 @@
 import { Global, INestApplication, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { DataSource } from 'typeorm';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { DatabaseModule } from '../src/database/database.module';
 import { RedisModule } from '../src/redis/redis.module';
 import { QueueModule } from '../src/queue/queue.module';
 import { REDIS_CLIENT } from '../src/redis/redis.constants';
-import { INGEST_QUEUE_PROVIDER } from '../src/queue/queue.constants';
+import { INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION } from '../src/queue/queue.constants';
 
 /**
  * Inert stand-ins for the infrastructure modules so the app can boot without a
  * live Postgres/Redis for the health smoke test.
  */
-@Module({})
+@Global()
+@Module({
+  providers: [{ provide: DataSource, useValue: { query: jest.fn(), getRepository: jest.fn() } }],
+  exports: [DataSource],
+})
 class FakeDatabaseModule {}
 
 @Global()
@@ -24,8 +29,11 @@ class FakeRedisModule {}
 
 @Global()
 @Module({
-  providers: [{ provide: INGEST_QUEUE_PROVIDER, useValue: { close: jest.fn(), add: jest.fn() } }],
-  exports: [INGEST_QUEUE_PROVIDER],
+  providers: [
+    { provide: INGEST_QUEUE_PROVIDER, useValue: { close: jest.fn(), add: jest.fn() } },
+    { provide: INGEST_WORKER_CONNECTION, useValue: { connection: { quit: jest.fn(), on: jest.fn() } } },
+  ],
+  exports: [INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION],
 })
 class FakeQueueModule {}
 
@@ -40,6 +48,7 @@ describe('Health (e2e)', () => {
   let app: INestApplication;
 
   const requiredEnv: Record<string, string> = {
+    NODE_ENV: 'test',
     DB_HOST: 'localhost',
     DB_PORT: '5432',
     DB_USER: 'analytics',
