@@ -32,10 +32,11 @@ export class GameEntity {
   sdkKey!: string;
 
   /**
-   * Secret server credential, stored HASHED (never plaintext). Nullable — a game
-   * may have no server-scope credential. Resolving it yields `provenance=server`.
-   * 011 realises the full 1..N `GAME_SERVER_CREDENTIAL` child table; this scalar
-   * is the minimal auth read surface.
+   * Secret server credential — a minimal pre-011 auth read surface that is
+   * compared as plaintext for now. Nullable — a game may have no server-scope
+   * credential. Resolving it yields `provenance=server`. 011 realises the full
+   * 1..N `GAME_SERVER_CREDENTIAL` child table with HASHED storage + show-once and
+   * migrates this scalar away; do not rely on this column holding a hash yet.
    */
   @Column({ type: 'text', nullable: true })
   serverCredential!: string | null;

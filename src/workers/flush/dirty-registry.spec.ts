@@ -36,6 +36,29 @@ class FakeRedis {
   async del(k: string): Promise<number> {
     return this.sets.delete(k) ? 1 : 0;
   }
+  /**
+   * Faithful model of DRAIN_LUA's atomic snapshot-and-clear: recover a stranded
+   * snapshot, then (if live is non-empty) rename live→snap, read + clear. Numeric
+   * `numKeys` then the key args, matching ioredis's `eval(script, numKeys, ...keys)`.
+   */
+  async eval(_script: string, numKeys: number, ...args: string[]): Promise<string[]> {
+    const live = args[0] ?? '';
+    const snap = args[1] ?? '';
+    void numKeys;
+    const snapSet = this.sets.get(snap);
+    if (snapSet && snapSet.size > 0) {
+      const target = this.set(live);
+      snapSet.forEach((x) => target.add(x));
+    }
+    this.sets.delete(snap);
+    const liveSet = this.sets.get(live);
+    if (!liveSet || liveSet.size === 0) {
+      return [];
+    }
+    const members = [...liveSet];
+    this.sets.delete(live);
+    return members;
+  }
 }
 
 function make(): { reg: DirtyRegistry; fake: FakeRedis } {
@@ -80,5 +103,29 @@ describe('DirtyRegistry (foundation §3.2)', () => {
     await reg.mark('cat', 'y');
     expect(await reg.drain('cnt')).toEqual(['x']);
     expect(await reg.drain('cat')).toEqual(['y']);
+  });
+
+  it('folds a stranded snapshot (crashed prior drain) back in — nothing stranded', async () => {
+    const { reg, fake } = make();
+    // Simulate a drain that renamed live→snap then crashed before consuming it.
+    await fake.sadd('ops:dirty:cnt:draining', 'stranded');
+    await reg.mark('cnt', 'fresh');
+    // The next drain recovers the stranded member AND the fresh one.
+    expect(new Set(await reg.drain('cnt'))).toEqual(new Set(['stranded', 'fresh']));
+  });
+
+  it('two concurrent drains of the SAME domain never throw and partition members (no TOCTOU)', async () => {
+    // Regression for the check-then-act RENAME race: `EXISTS live` then
+    // `RENAME live snap` could interleave so the 2nd RENAME hit a missing key and
+    // threw `ERR no such key`. The atomic Lua drain must make one drainer win the
+    // snapshot and the other see an empty set — never an error, never a lost/dup
+    // member. (Modeled here; proven against LIVE Redis in the integration spec.)
+    const { reg } = make();
+    await reg.mark('cnt', 'm1');
+    await reg.mark('cnt', 'm2');
+    const [a, b] = await Promise.all([reg.drain('cnt'), reg.drain('cnt')]);
+    const all = [...a, ...b];
+    expect(new Set(all)).toEqual(new Set(['m1', 'm2'])); // union = everything, once
+    expect(all.length).toBe(2); // no duplicate delivery across the two drains
   });
 });

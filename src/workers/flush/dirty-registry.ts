@@ -25,6 +25,43 @@ function snapshotKey(domain: Domain): string {
   return `ops:dirty:${domain}:draining`;
 }
 
+/**
+ * Atomic snapshot-and-clear (foundation §3.2). Runs the whole drain server-side
+ * so two concurrent drains of the SAME domain (multiple flush workers, or a
+ * shared-Redis test harness) can never race a check-then-act:
+ *
+ *   KEYS[1] = live registry set, KEYS[2] = transient snapshot set.
+ *
+ * A previous `EXISTS live` → `RENAME live snap` sequence had a TOCTOU hole: a
+ * second drainer could RENAME `live` away between the two commands, so the first
+ * RENAME hit a missing key and threw `ERR no such key`. Doing it in one Lua body
+ * closes that window (Redis executes a script atomically). Steps:
+ *   1. fold any leftover snapshot (a prior crashed drain) back into `live`;
+ *   2. if `live` is empty/absent → return {} (nothing to flush);
+ *   3. RENAME live→snap, read members, DEL snap, return the members.
+ * Marks made AFTER the rename accumulate in a fresh `live` and drain next sweep.
+ */
+const DRAIN_LUA = `
+local live = KEYS[1]
+local snap = KEYS[2]
+-- Recover a stranded snapshot from a prior crashed drain (idempotent).
+if redis.call('EXISTS', snap) == 1 then
+  local leftover = redis.call('SMEMBERS', snap)
+  if #leftover > 0 then
+    redis.call('SADD', live, unpack(leftover))
+  end
+  redis.call('DEL', snap)
+end
+-- Empty/absent live set → nothing to drain this sweep.
+if redis.call('EXISTS', live) == 0 then
+  return {}
+end
+redis.call('RENAME', live, snap)
+local members = redis.call('SMEMBERS', snap)
+redis.call('DEL', snap)
+return members
+`;
+
 @Injectable()
 export class DirtyRegistry {
   constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
@@ -50,24 +87,8 @@ export class DirtyRegistry {
   async drain(domain: Domain): Promise<string[]> {
     const live = registryKey(domain);
     const snap = snapshotKey(domain);
-
-    // RENAME throws if the source is missing (empty registry) — treat as empty.
-    const exists = await this.redis.exists(live);
-    if (exists === 0) {
-      return [];
-    }
-
-    // If a prior drain crashed after RENAME but before consuming the snapshot,
-    // fold those stragglers back in so nothing is stranded.
-    const leftover = await this.redis.smembers(snap);
-    if (leftover.length > 0) {
-      await this.redis.sadd(live, ...leftover);
-      await this.redis.del(snap);
-    }
-
-    await this.redis.rename(live, snap);
-    const members = await this.redis.smembers(snap);
-    await this.redis.del(snap);
+    // Atomic snapshot-and-clear (see DRAIN_LUA) — no check-then-act RENAME race.
+    const members = (await this.redis.eval(DRAIN_LUA, 2, live, snap)) as string[];
     return members;
   }
 

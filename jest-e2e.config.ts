@@ -21,6 +21,11 @@ const config: Config = {
   // terminates deterministically instead of hanging on a lingering handle.
   forceExit: true,
   testTimeout: 30000,
+  // Serial: the e2e specs share ONE Postgres + Redis, and the PITR DR drill
+  // TRUNCATEs the results tables — running it concurrently with the ingest e2e
+  // (which flushes into those same tables) would clobber the other's data. One
+  // worker keeps the shared-stack e2e deterministic.
+  maxWorkers: 1,
 };
 
 export default config;
