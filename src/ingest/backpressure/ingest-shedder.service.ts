@@ -24,7 +24,7 @@ import { ConfigService } from '@nestjs/config';
 import { MemoryWatermarkService } from './memory-watermark.service';
 import { RateLimitService } from './rate-limit.service';
 import { ExceptionTallyWriter } from '../../workers/kernel/exception-tally.writer';
-import { arrivalBucketDay } from '../../common/kernel/logical-day';
+import { arrivalBucketDay, coerceReportingOffsetMinutes } from '../../common/kernel/logical-day';
 
 @Injectable()
 export class IngestShedder {
@@ -39,7 +39,7 @@ export class IngestShedder {
     config: ConfigService,
   ) {
     this.retryAfterSeconds = config.get<number>('RETRY_AFTER_SECONDS') ?? 5;
-    this.reportingOffsetMinutes = config.get<number>('REPORTING_OFFSET') ?? 0;
+    this.reportingOffsetMinutes = coerceReportingOffsetMinutes(config.get<string | number>('REPORTING_OFFSET'));
   }
 
   /**

@@ -39,6 +39,7 @@ import { DataSource } from 'typeorm';
 import { ErasureLedgerEntity } from '../database/entities/erasure-ledger.entity';
 import { UploadBookkeepingEntity } from '../database/entities/upload-bookkeeping.entity';
 import { checkSealState } from '../common/kernel/seal';
+import { coerceReportingOffsetMinutes } from '../common/kernel/logical-day';
 import { ConfigService } from '@nestjs/config';
 import { RawFileService } from '../workers/rawfile/raw-file.service';
 import { ColdStorageConfigService } from './cold-storage-config.service';
@@ -75,7 +76,7 @@ export class UploadStatusReadModel {
   ) {}
 
   private get reportingOffsetMinutes(): number {
-    return this.config.get<number>('REPORTING_OFFSET') ?? 0;
+    return coerceReportingOffsetMinutes(this.config.get<string | number>('REPORTING_OFFSET'));
   }
 
   /**

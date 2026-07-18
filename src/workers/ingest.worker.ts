@@ -27,7 +27,7 @@ import { Redis } from 'ioredis';
 import { INGEST_QUEUE, INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION } from '../queue/queue.constants';
 import type { EventEnvelope } from '../common/contracts/envelope';
 import type { IngestBatchJob } from '../common/contracts/queue-jobs';
-import { arrivalBucketDay } from '../common/kernel/logical-day';
+import { arrivalBucketDay, coerceReportingOffsetMinutes } from '../common/kernel/logical-day';
 import { IngestKernel, type KernelContext, type PipelineOutcome } from './kernel/ingest-kernel';
 import { ExceptionTallyWriter } from './kernel/exception-tally.writer';
 import { FlushJobService } from './flush/flush-job.service';
@@ -106,7 +106,7 @@ export class IngestWorker implements OnModuleInit, OnApplicationShutdown {
   async processBatch(job: Job<IngestBatchJob>): Promise<{ processed: number; counted: number }> {
     const data = job.data;
     const batchJobId = String(job.id ?? data.batch_id);
-    const reportingOffsetMinutes = this.config.get<number>('REPORTING_OFFSET') ?? 0;
+    const reportingOffsetMinutes = coerceReportingOffsetMinutes(this.config.get<string | number>('REPORTING_OFFSET'));
 
     const outcomes = await Promise.all(
       data.events.map((envelope) =>

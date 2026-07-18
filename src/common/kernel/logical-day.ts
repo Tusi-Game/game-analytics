@@ -59,6 +59,20 @@ export function logicalDay(epochMs: number, reportingOffsetMinutes: number): str
 }
 
 /**
+ * Coerce a raw `REPORTING_OFFSET` config value to a safe integer minute count.
+ *
+ * `ConfigService.get<number>('REPORTING_OFFSET')` is a compile-time assertion
+ * only — the value read from `process.env` is a STRING (e.g. `'0'`), which the
+ * `Number.isInteger` guard above rejects. This normalizes string | number |
+ * undefined to an integer, falling back to 0 (UTC) on anything unparseable,
+ * matching the env-schema default.
+ */
+export function coerceReportingOffsetMinutes(raw: string | number | undefined): number {
+  const n = raw === undefined || raw === null ? Number.NaN : Number(raw);
+  return Number.isInteger(n) ? n : 0;
+}
+
+/**
  * The UTC-epoch-ms of the START of the logical day that `epochMs` falls in.
  * Used by the seal clock (§2.3): the seal boundary is `dayEnd + grace`, and
  * `dayEnd` is this floor plus 24 h. The offset is applied once via

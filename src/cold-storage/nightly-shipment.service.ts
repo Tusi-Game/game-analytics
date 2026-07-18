@@ -37,6 +37,7 @@ import { promises as fsp } from 'node:fs';
 import { join } from 'node:path';
 import { DataSource } from 'typeorm';
 import { checkSealState } from '../common/kernel/seal';
+import { coerceReportingOffsetMinutes } from '../common/kernel/logical-day';
 import { RawFileService } from '../workers/rawfile/raw-file.service';
 import { UploadBookkeepingEntity, type UploadIntegrityRef } from '../database/entities/upload-bookkeeping.entity';
 import { ColdStorageConfigService } from './cold-storage-config.service';
@@ -95,7 +96,7 @@ export class NightlyShipmentService {
 
   /** Platform reporting offset (minutes) — same clock the seal boundary uses. */
   private get reportingOffsetMinutes(): number {
-    return this.config.get<number>('REPORTING_OFFSET') ?? 0;
+    return coerceReportingOffsetMinutes(this.config.get<string | number>('REPORTING_OFFSET'));
   }
 
   /**
