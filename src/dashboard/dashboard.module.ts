@@ -4,6 +4,7 @@ import { DatabaseModule } from '../database/database.module';
 import { RedisModule } from '../redis/redis.module';
 import { SessionsModule } from '../sessions/sessions.module';
 import { EconomyModule } from '../economy/economy.module';
+import { MonetizationModule } from '../monetization/monetization.module';
 import { ReadModelService } from './read-model.service';
 import { ReadModelController } from './read-model.controller';
 
@@ -16,7 +17,7 @@ import { ReadModelController } from './read-model.controller';
  * SessionReadService / RetentionReadService exported by {@link SessionsModule}.
  */
 @Module({
-  imports: [CommonModule, DatabaseModule, RedisModule, SessionsModule, EconomyModule],
+  imports: [CommonModule, DatabaseModule, RedisModule, SessionsModule, EconomyModule, MonetizationModule],
   controllers: [ReadModelController],
   providers: [ReadModelService],
   exports: [ReadModelService],

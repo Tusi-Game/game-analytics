@@ -17,6 +17,14 @@ import {
   type MoneySupplyView,
   type SupplyTrendPoint,
 } from '../economy/economy-read.service';
+import {
+  MonetizationReadService,
+  type ActiveUsersView,
+  type RevenueKpiView,
+  type TopPackageRow,
+  type WhaleView,
+  type Maybe,
+} from '../monetization/monetization-read.service';
 
 @Controller('v1/dashboard')
 @UseGuards(OperatorSessionGuard)
@@ -27,6 +35,8 @@ export class ReadModelController {
     private readonly retentionRead: RetentionReadService,
     // 004-economy read surface (appended additively).
     private readonly economyRead: EconomyReadService,
+    // 006-monetization + 007-derived-kpis read surface (appended additively).
+    private readonly monetizationRead: MonetizationReadService,
   ) {}
 
   /**
@@ -138,5 +148,98 @@ export class ReadModelController {
     const f = /^\d{4}-\d{2}-\d{2}$/.test(from ?? '') ? from : utcDay(Date.now());
     const t = /^\d{4}-\d{2}-\d{2}$/.test(to ?? '') ? to : utcDay(Date.now());
     return this.economyRead.supplyTrend(gameId, currency, f, t);
+  }
+
+  // ---- 006-monetization + 007-derived-kpis read endpoints (appended) --------
+
+  /**
+   * `GET /v1/dashboard/:gameId/monetization/top?dim=&from=&to=&measure=` — top package
+   * by dimension over a day range. `unknown`/`other` are first-class values.
+   */
+  @Get(':gameId/monetization/top')
+  async topPackage(
+    @Param('gameId') gameId: string,
+    @Query('dim') dim: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('measure') measure?: string,
+  ): Promise<TopPackageRow[]> {
+    const f = /^\d{4}-\d{2}-\d{2}$/.test(from ?? '') ? from : utcDay(Date.now());
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(to ?? '') ? to : utcDay(Date.now());
+    return this.monetizationRead.topPackageByDimension(gameId, dim, f, t, measure === 'count' ? 'count' : 'revenue');
+  }
+
+  /**
+   * `GET /v1/dashboard/:gameId/monetization/coverage?from=&to=` — per client-only-dim
+   * context-coverage health (`1 − unknown-revenue / total`). Companion-delivery signal.
+   */
+  @Get(':gameId/monetization/coverage')
+  async contextCoverage(
+    @Param('gameId') gameId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ): Promise<Record<string, Maybe>> {
+    const f = /^\d{4}-\d{2}-\d{2}$/.test(from ?? '') ? from : utcDay(Date.now());
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(to ?? '') ? to : utcDay(Date.now());
+    return this.monetizationRead.contextCoverage(gameId, f, t);
+  }
+
+  /**
+   * `GET /v1/dashboard/:gameId/kpis/active?day=` — DAU/WAU/MAU + stickiness. WAU/MAU
+   * masked N/A until the trailing window has elapsed; today provisional.
+   */
+  @Get(':gameId/kpis/active')
+  async activeUsers(@Param('gameId') gameId: string, @Query('day') day?: string): Promise<ActiveUsersView> {
+    const resolvedDay = day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : utcDay(Date.now());
+    return this.monetizationRead.activeUsers(gameId, resolvedDay);
+  }
+
+  /**
+   * `GET /v1/dashboard/:gameId/kpis/revenue?day=` — ARPU/ARPPU/ARPDAU/conversion for a
+   * day. Div-by-0 → N/A never 0; today provisional.
+   */
+  @Get(':gameId/kpis/revenue')
+  async revenueKpis(@Param('gameId') gameId: string, @Query('day') day?: string): Promise<RevenueKpiView> {
+    const resolvedDay = day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : utcDay(Date.now());
+    return this.monetizationRead.revenueKpis(gameId, resolvedDay);
+  }
+
+  /**
+   * `GET /v1/dashboard/:gameId/kpis/whale?period=YYYY-MM` — whale concentration for a
+   * period. `low_confidence` when payers < whale_min_payers; indeterminate payers
+   * surfaced separately. Defaults to the current month.
+   */
+  @Get(':gameId/kpis/whale')
+  async whale(@Param('gameId') gameId: string, @Query('period') period?: string): Promise<WhaleView> {
+    const resolvedPeriod = period && /^\d{4}-\d{2}$/.test(period) ? period : utcDay(Date.now()).slice(0, 7);
+    return this.monetizationRead.whaleConcentration(gameId, resolvedPeriod);
+  }
+
+  /**
+   * `GET /v1/dashboard/:gameId/kpis/first-conversion?from=&to=` — first-purchase
+   * conversion over a day range (count first_purchase_day ∈ range ÷ denominator).
+   */
+  @Get(':gameId/kpis/first-conversion')
+  async firstConversion(
+    @Param('gameId') gameId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ): Promise<{ value: Maybe }> {
+    const f = /^\d{4}-\d{2}-\d{2}$/.test(from ?? '') ? from : utcDay(Date.now());
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(to ?? '') ? to : utcDay(Date.now());
+    return { value: await this.monetizationRead.firstPurchaseConversion(gameId, f, t) };
+  }
+
+  /**
+   * `GET /v1/dashboard/:gameId/kpis/composition?day=` — new vs returning DAU split
+   * (disjoint, sums to DAU).
+   */
+  @Get(':gameId/kpis/composition')
+  async composition(
+    @Param('gameId') gameId: string,
+    @Query('day') day?: string,
+  ): Promise<{ new: number; returning: number; dau: Maybe }> {
+    const resolvedDay = day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : utcDay(Date.now());
+    return this.monetizationRead.newReturning(gameId, resolvedDay);
   }
 }

@@ -5,3 +5,4 @@
 export * from './flush-merge';
 export * from './dirty-registry';
 export * from './flush.service';
+export * from './flush-job.service';

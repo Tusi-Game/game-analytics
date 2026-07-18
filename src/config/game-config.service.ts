@@ -72,6 +72,25 @@ export const GAME_CONFIG_DEFAULTS = {
   economy_currency_allowlist: [],
   economy_currency_cap_per_game: 500,
   economy_depth_capture_mode: 'full',
+  // 006-monetization + 007-derived-kpis knobs (§6/§7). APPENDED additively — every new
+  // key has a matching CONFIG_CONTRACTS row (config-contract.ts) (superset invariant).
+  //  - monetization_dimensions: active report dims; rebuild-forward (FR-020).
+  //  - monetization_dimension_value_cap: per-dim distinct-value budget; over-cap → other.
+  //  - payer_tier_rule: fixed dollar thresholds vs lifetime spend (future-reads).
+  //  - fx_table: envelope-encrypted FX material (reversible infra secret; future-reads).
+  //  - fx_staleness_max_days: as-of staleness cap before parking unconverted.
+  //  - whale_min_payers / whale_top_percents: whale cohort read-time knobs.
+  //  - mau_window_days / partial_window_mask: derived-KPI window knobs.
+  //  - arppu_first_purchase_denominator: first-purchase-conversion denominator base.
+  monetization_dimensions: ['level_bucket', 'region', 'in_game_state', 'payer_tier'],
+  monetization_dimension_value_cap: 50,
+  payer_tier_rule: { dolphin_min: 10, whale_min: 100 },
+  fx_staleness_max_days: 7,
+  whale_min_payers: 20,
+  whale_top_percents: [1, 5, 10],
+  mau_window_days: 30,
+  partial_window_mask: true,
+  arppu_first_purchase_denominator: 'active_users',
 } as const;
 
 interface CacheEntry {

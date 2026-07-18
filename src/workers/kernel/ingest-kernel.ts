@@ -328,14 +328,18 @@ export class IngestKernel {
   ): Promise<{ outcome: DedupOutcome; token: DedupPassedToken }> {
     let outcome: DedupOutcome;
     if (resolvedKind === 'purchase') {
-      // DURABLE gate only — money NEVER uses the 24 h window. transaction_id is
-      // the durable-dedup key (R2); purchase_attempt_id is a companion-join key
-      // and is NOT used for dedup here.
+      // Two purchase sub-contracts (006 refinement, design step 6):
+      //  - SERVER revenue row → has transaction_id → the DURABLE gate ONLY (money
+      //    NEVER uses the 24 h window; transaction_id is the durable-dedup key, R2).
+      //  - CLIENT companion (zero-money context) → the client legitimately LACKS the
+      //    store transaction_id (the join key is purchase_attempt_id, R2), so it
+      //    passes ONLY 01's WINDOWED event_id gate and flows to the step-8 join.
+      //    A companion carries no money, so a rare beyond-window replay cannot
+      //    double-count revenue (it only re-enriches dims). purchase_attempt_id is
+      //    NOT used for dedup — only for the step-8 join.
       const transactionId = this.readString(envelope.props, 'transaction_id');
       if (transactionId === null) {
-        // No durable key → cannot dedup money safely; treat as duplicate-guard
-        // stop rather than risk a double-count. (006 refines the exact tally.)
-        outcome = 'duplicate';
+        outcome = await this.windowedDedup.claim(envelope.game_id, envelope.event_id);
       } else {
         outcome = await this.purchaseDedup.claimTransaction(envelope.game_id, transactionId);
       }

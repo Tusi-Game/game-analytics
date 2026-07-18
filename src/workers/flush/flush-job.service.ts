@@ -33,7 +33,7 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { Domain } from '../../common/redis-keys/redis-keys';
 import { DirtyRegistry } from './dirty-registry';
-import { FlushService, type DomainFlushPlan, type FlushSweepResult } from './flush.service';
+import { FlushService, type ClassNFlushPlan, type DomainFlushPlan, type FlushSweepResult } from './flush.service';
 import { CAT_FLUSH_PLAN, CNT_FLUSH_PLAN, EXC_FLUSH_PLAN, partitionCntBuckets } from './flush-plans';
 
 /**
@@ -56,6 +56,26 @@ export interface ExtraDomainFlushPlan {
  */
 export const EXTRA_DOMAIN_FLUSH_PLANS = 'EXTRA_DOMAIN_FLUSH_PLANS';
 
+/**
+ * One story-registered CLASS-N sweep step (006 build gap). Class N cannot use the
+ * plain HGETALL-per-hash path — it requires an atomic Lua snapshot of (gen + all
+ * related data hashes) so a MOVE's decrement+increment are both-in/both-out. Stories
+ * contribute these via {@link EXTRA_CLASS_N_FLUSH_PLANS}; the sweep runs each
+ * additively after the M/S/L plans.
+ */
+export interface ExtraClassNFlushPlan {
+  /** The dirty-registry domain to drain. */
+  readonly domain: Domain;
+  /** The class-N plan to snapshot + flush the drained keys under. */
+  readonly plan: ClassNFlushPlan;
+}
+
+/**
+ * Multi-provider token for story-registered class-N sweep steps. Inject as
+ * `ExtraClassNFlushPlan[]`. Absent → the sweep runs no class-N step (byte-for-byte 002).
+ */
+export const EXTRA_CLASS_N_FLUSH_PLANS = 'EXTRA_CLASS_N_FLUSH_PLANS';
+
 /** Aggregate result of one full sweep across all 002 domains. */
 export interface FullSweepResult {
   cnt: FlushSweepResult;
@@ -63,6 +83,8 @@ export interface FullSweepResult {
   cat: FlushSweepResult;
   /** Per-domain results of any story-registered extra sweep steps (Stage-C). */
   extra?: Record<string, FlushSweepResult>;
+  /** Per-domain results of any story-registered class-N sweep steps (006). */
+  extraN?: Record<string, FlushSweepResult>;
 }
 
 @Injectable()
@@ -73,6 +95,9 @@ export class FlushJobService {
     @Optional()
     @Inject(EXTRA_DOMAIN_FLUSH_PLANS)
     private readonly extraPlans: readonly ExtraDomainFlushPlan[] = [],
+    @Optional()
+    @Inject(EXTRA_CLASS_N_FLUSH_PLANS)
+    private readonly extraNPlans: readonly ExtraClassNFlushPlan[] = [],
   ) {}
 
   /**
@@ -95,8 +120,44 @@ export class FlushJobService {
     const cat = await this.flush.sealFinalFlush(CAT_FLUSH_PLAN, catBuckets);
 
     const extra = await this.sweepExtraDomains();
+    const extraN = await this.sweepClassNDomains();
 
-    return extra ? { cnt, exc, cat, extra } : { cnt, exc, cat };
+    const base: FullSweepResult = { cnt, exc, cat };
+    if (extra) {
+      base.extra = extra;
+    }
+    if (extraN) {
+      base.extraN = extraN;
+    }
+    return base;
+  }
+
+  /**
+   * Drain + class-N-flush every story-registered class-N domain. Each distinct domain is
+   * drained ONCE; every class-N plan on that domain snapshots + flushes over that batch.
+   * Returns undefined when no story registered a class-N plan (keeps the 002 shape).
+   */
+  private async sweepClassNDomains(): Promise<Record<string, FlushSweepResult> | undefined> {
+    if (this.extraNPlans.length === 0) {
+      return undefined;
+    }
+    const byDomain = new Map<Domain, ClassNFlushPlan[]>();
+    for (const { domain, plan } of this.extraNPlans) {
+      const list = byDomain.get(domain);
+      if (list) {
+        list.push(plan);
+      } else {
+        byDomain.set(domain, [plan]);
+      }
+    }
+    const results: Record<string, FlushSweepResult> = {};
+    for (const [domain, plans] of byDomain) {
+      const keys = await this.dirty.drain(domain);
+      for (const plan of plans) {
+        results[`${domain}:${plan.spec.table}`] = await this.flush.sealFinalFlushClassN(plan, keys);
+      }
+    }
+    return results;
   }
 
   /**

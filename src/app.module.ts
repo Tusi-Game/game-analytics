@@ -10,6 +10,7 @@ import { IngestModule } from './ingest/ingest.module';
 import { WorkersModule } from './workers/workers.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { EconomyModule } from './economy/economy.module';
+import { MonetizationModule } from './monetization/monetization.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PanelModule } from './panel/panel.module';
@@ -39,6 +40,12 @@ import { HealthController } from './health/health.controller';
     // triple + eco/bal flush plans with the dispatcher seam (additive). MUST come
     // after WorkersModule (which owns the dispatchers).
     EconomyModule,
+    // 006-monetization + 007-derived-kpis (combined) — registers the `purchase` kind's
+    // validator/durable/hot triple + mon/payer/rev flush plans (incl. the class-N
+    // atomic-snapshot flush) with the dispatcher seam (additive), and REBINDS
+    // PURCHASE_DEDUP_GATE to the real durable gate. MUST come after WorkersModule so the
+    // single-binding dedup-gate override wins.
+    MonetizationModule,
     GdprModule,
     DashboardModule,
     PanelModule,

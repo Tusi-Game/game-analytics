@@ -339,6 +339,30 @@ export const CONFIG_CONTRACTS: readonly KnobContract[] = [
     contract: { type: 'int', min: 1, max: 1_000_000 },
     note: 'Whale-cohort min-payers threshold; retroactive read-time window.',
   },
+  {
+    key: 'whale_top_percents',
+    owner: '007-derived-kpis',
+    effect: 'retroactive',
+    scope: 'per-game',
+    contract: { type: 'array', element: { type: 'int', min: 1, max: 50 }, maxItems: 50 },
+    note: 'Whale top-percent cohorts (1/5/10…); retroactive read-time re-rank (full distribution retained).',
+  },
+  {
+    key: 'partial_window_mask',
+    owner: '007-derived-kpis',
+    effect: 'display-only',
+    scope: 'per-game',
+    contract: { type: 'boolean' },
+    note: 'Mask WAU/MAU/stickiness until the trailing window has fully elapsed; display-only.',
+  },
+  {
+    key: 'arppu_first_purchase_denominator',
+    owner: '007-derived-kpis',
+    effect: 'forward-only',
+    scope: 'per-game',
+    contract: { type: 'enum', values: ['active_users', 'new_users'] },
+    note: 'First-purchase-conversion denominator base; display choice.',
+  },
 
   // ── 008-cold-storage ─────────────────────────────────────────────────────
   {

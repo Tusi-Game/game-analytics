@@ -38,6 +38,13 @@ import { EconomyFlowResultEntity } from '../database/entities/economy-flow-resul
 import { EconomyFlowSegmentResultEntity } from '../database/entities/economy-flow-segment-result.entity';
 import { BalanceSnapshotEntity } from '../database/entities/balance-snapshot.entity';
 import { EconomySupplyDayEntity } from '../database/entities/economy-supply-day.entity';
+// 006-monetization + 007-derived-kpis entities.
+import { PurchaseIdempotencyEntity } from '../database/entities/purchase-idempotency.entity';
+import { MonetizationCellEntity } from '../database/entities/monetization-cell.entity';
+import { PayerDayEntity } from '../database/entities/payer-day.entity';
+import { PayerSpineExtEntity } from '../database/entities/payer-spine-ext.entity';
+import { PayerPeriodSpendEntity } from '../database/entities/payer-period-spend.entity';
+import { FxRateEntity } from '../database/entities/fx-rate.entity';
 
 const REDIS_HOST = process.env.REDIS_HOST ?? '127.0.0.1';
 const REDIS_PORT = Number(process.env.REDIS_PORT ?? 6379);
@@ -101,6 +108,13 @@ export async function connectPostgresOrNull(): Promise<DataSource | null> {
       EconomyFlowSegmentResultEntity,
       BalanceSnapshotEntity,
       EconomySupplyDayEntity,
+      // 006-monetization + 007-derived-kpis.
+      PurchaseIdempotencyEntity,
+      MonetizationCellEntity,
+      PayerDayEntity,
+      PayerSpineExtEntity,
+      PayerPeriodSpendEntity,
+      FxRateEntity,
     ],
     namingStrategy: new SnakeNamingStrategy(),
     synchronize: true, // TEST-ONLY: build the schema in an ephemeral test DB.
