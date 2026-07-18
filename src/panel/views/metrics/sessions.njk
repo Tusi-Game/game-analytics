@@ -1,0 +1,31 @@
+{% extends "layouts/panel.njk" %}
+{% from "partials/period-selector.njk" import periodSelector %}
+{% from "partials/chart-fragment.njk" import chartFragment %}
+{% from "partials/metric-card.njk" import metricCard %}
+{% from "partials/empty-state.njk" import emptyState %}
+
+{% block content %}
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-xl font-semibold">{{ gameName }} — Sessions</h1>
+    {{ periodSelector('/panel/' + gameId + '/sessions', period) }}
+  </div>
+
+  {% if hasData %}
+    <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+      {{ metricCard({ label: 'Total sessions', value: summary.totalSessions, provisional: provisional }) }}
+      {{ metricCard({ label: 'Avg duration', value: summary.avgDuration, provisional: provisional }) }}
+    </div>
+
+    <div class="rounded-xl bg-white ring-1 ring-slate-200 p-4 mb-6">
+      <h2 class="text-sm font-semibold text-slate-700 mb-3">Session count</h2>
+      {{ chartFragment(countChart, '18rem') }}
+    </div>
+
+    <div class="rounded-xl bg-white ring-1 ring-slate-200 p-4">
+      <h2 class="text-sm font-semibold text-slate-700 mb-3">Daily active users <span class="text-xs font-normal text-slate-400">(with 7-day rolling average)</span></h2>
+      {{ chartFragment(dauChart, '16rem') }}
+    </div>
+  {% else %}
+    {{ emptyState('No sessions in period', 'Sessions appear once your game reports session events.') }}
+  {% endif %}
+{% endblock %}

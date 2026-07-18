@@ -6,7 +6,7 @@
  */
 
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { OperatorSessionGuard } from '../common/guards/operator-session.guard';
+import { OperatorSessionGuard } from '../operator/operator-session.guard';
 import { ReadModelService, type DayCounts } from './read-model.service';
 import { utcDay } from '../common/kernel/logical-day';
 import { SessionReadService, type SessionDayView, type SessionWindowView } from '../sessions/session-read.service';

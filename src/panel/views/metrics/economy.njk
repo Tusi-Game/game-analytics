@@ -1,0 +1,64 @@
+{% extends "layouts/panel.njk" %}
+{% from "partials/period-selector.njk" import periodSelector %}
+{% from "partials/chart-fragment.njk" import chartFragment %}
+{% from "partials/metric-card.njk" import metricCard %}
+{% from "partials/empty-state.njk" import emptyState %}
+
+{% block content %}
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <h1 class="text-xl font-semibold">{{ gameName }} — Economy</h1>
+    <div class="flex items-center gap-2">
+      {% if currencies and currencies | length > 0 %}
+        <div x-data>
+          <select onchange="window.location.href='/panel/{{ gameId }}/economy?period={{ period }}&currency='+this.value"
+                  class="px-2 py-1.5 text-sm rounded-lg border border-slate-300 bg-white">
+            {% for c in currencies %}<option value="{{ c }}" {% if c == currency %}selected{% endif %}>{{ c }}</option>{% endfor %}
+          </select>
+        </div>
+      {% endif %}
+      {{ periodSelector('/panel/' + gameId + '/economy', period, 'currency=' + currency) }}
+    </div>
+  </div>
+
+  {% if provisional %}<div class="mb-3 text-xs text-amber-700">Period includes today — figures are provisional.</div>{% endif %}
+  {% if lowVolume %}<div class="mb-3 rounded-lg bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-sm text-amber-800">Low volume for the selected window — sink ratio may be unreliable.</div>{% endif %}
+
+  {% if hasData %}
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      {{ metricCard({ label: 'Total sources', value: summary.totalSource, provisional: provisional }) }}
+      {{ metricCard({ label: 'Total sinks', value: summary.totalSink, provisional: provisional }) }}
+      {{ metricCard({ label: 'Net flow', value: summary.netFlow, provisional: provisional }) }}
+      {{ metricCard({ label: 'Sink ratio', value: summary.sinkRatio, provisional: provisional }) }}
+    </div>
+
+    <div class="rounded-xl bg-white ring-1 ring-slate-200 p-4 mb-6">
+      <h2 class="text-sm font-semibold text-slate-700 mb-3">Net flow ({{ currency }})</h2>
+      {{ chartFragment(netFlowChart, '18rem') }}
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-6 mb-6">
+      <div class="rounded-xl bg-white ring-1 ring-slate-200">
+        <h2 class="text-sm font-semibold text-emerald-700 p-4 border-b border-slate-100">Top faucets (sources)</h2>
+        <table class="min-w-full text-sm"><tbody class="divide-y divide-slate-100">
+          {% for f in topFaucets %}<tr><td class="px-4 py-2 text-slate-700">{{ loop.index }}. {{ f.reason }}</td><td class="px-4 py-2 text-right text-emerald-700">{{ f.amount }}</td></tr>{% else %}<tr><td class="px-4 py-6 text-center text-slate-400">No sources.</td></tr>{% endfor %}
+        </tbody></table>
+      </div>
+      <div class="rounded-xl bg-white ring-1 ring-slate-200">
+        <h2 class="text-sm font-semibold text-red-700 p-4 border-b border-slate-100">Top drains (sinks)</h2>
+        <table class="min-w-full text-sm"><tbody class="divide-y divide-slate-100">
+          {% for d in topDrains %}<tr><td class="px-4 py-2 text-slate-700">{{ loop.index }}. {{ d.reason }}</td><td class="px-4 py-2 text-right text-red-700">{{ d.amount }}</td></tr>{% else %}<tr><td class="px-4 py-6 text-center text-slate-400">No sinks.</td></tr>{% endfor %}
+        </tbody></table>
+      </div>
+    </div>
+
+    {% if supplyChart %}
+      <div class="rounded-xl bg-white ring-1 ring-slate-200 p-4">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">Money supply trend</h2>
+        <p class="text-xs text-slate-400 mb-3">Measured supply vs cumulative-flow-implied supply. Divergence is a diagnostic signal.</p>
+        {{ chartFragment(supplyChart, '16rem') }}
+      </div>
+    {% endif %}
+  {% else %}
+    {{ emptyState('No economy data for ' + currency, 'No source/sink events recorded for this currency in the selected period.') }}
+  {% endif %}
+{% endblock %}

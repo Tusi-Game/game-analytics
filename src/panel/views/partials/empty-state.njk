@@ -1,0 +1,16 @@
+{#
+  partials/empty-state.njk (T-11.15) — "no data yet" placeholder with icon.
+  `title` + optional `message` + optional `ctaHref`/`ctaLabel`.
+#}
+{% from "partials/icons.njk" import icon %}
+{% macro emptyState(title, message='', ctaHref='', ctaLabel='') %}
+  <div class="flex flex-col items-center justify-center text-center py-12 px-4 text-slate-500">
+    <div class="text-slate-300">{{ icon('empty', 'h-10 w-10') }}</div>
+    <p class="mt-3 text-sm font-medium text-slate-700">{{ title }}</p>
+    {% if message %}<p class="mt-1 text-sm text-slate-500 max-w-sm">{{ message }}</p>{% endif %}
+    {% if ctaHref %}
+      <a href="{{ ctaHref }}" hx-get="{{ ctaHref }}" hx-target="#content" hx-select="#content" hx-swap="outerHTML" hx-push-url="true"
+         class="mt-4 inline-flex px-3 py-1.5 text-sm rounded-lg bg-brand-600 text-white hover:bg-brand-700">{{ ctaLabel }}</a>
+    {% endif %}
+  </div>
+{% endmacro %}

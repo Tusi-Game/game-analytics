@@ -1,0 +1,41 @@
+{#
+  partials/sidebar.njk (T-11.13) — nav. Game-scoped items show only when a game is
+  selected (gameId present). Active-state highlight via `nav` var. `admin`-only
+  Accounts item is server-gated (operator.role). SPA-nav via hx-get→#content.
+  Links carry hx-boost-style attrs so a click swaps #content + pushes URL.
+#}
+{% from "partials/icons.njk" import icon %}
+{% macro navlink(href, label, iconName, key, nav) %}
+  <a href="{{ href }}"
+     hx-get="{{ href }}" hx-target="#content" hx-select="#content" hx-swap="outerHTML" hx-push-url="true"
+     class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition
+            {% if nav == key %}bg-brand-600 text-white{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">
+    {{ icon(iconName, 'h-5 w-5 shrink-0') }}
+    <span>{{ label }}</span>
+  </a>
+{% endmacro %}
+
+<nav class="flex flex-col gap-1 p-3">
+  {{ navlink('/panel/games', 'Games', 'games', 'games', nav) }}
+
+  {% if gameId %}
+    <div class="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wide text-slate-500 truncate">
+      {{ gameName | default(gameId) }}
+    </div>
+    {{ navlink('/panel/' + gameId, 'Dashboard', 'dashboard', 'dashboard', nav) }}
+    {{ navlink('/panel/' + gameId + '/economy', 'Economy', 'economy', 'economy', nav) }}
+    {{ navlink('/panel/' + gameId + '/retention', 'Retention', 'retention', 'retention', nav) }}
+    {{ navlink('/panel/' + gameId + '/monetization', 'Monetization', 'monetization', 'monetization', nav) }}
+    {{ navlink('/panel/' + gameId + '/sessions', 'Sessions', 'sessions', 'sessions', nav) }}
+    {{ navlink('/panel/' + gameId + '/settings', 'Settings & Keys', 'config', 'settings', nav) }}
+    {{ navlink('/panel/' + gameId + '/config', 'Configuration', 'config', 'config', nav) }}
+    {{ navlink('/panel/' + gameId + '/ops/cold-storage', 'Cold Storage', 'ops', 'ops-cold', nav) }}
+    {{ navlink('/panel/' + gameId + '/ops/exceptions', 'Exceptions', 'ops', 'ops-exc', nav) }}
+    {{ navlink('/panel/' + gameId + '/ops/erasure', 'Erasure / DSAR', 'ops', 'ops-erasure', nav) }}
+  {% endif %}
+
+  {% if operator and operator.role == 'admin' %}
+    <div class="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Admin</div>
+    {{ navlink('/panel/operators', 'Operators', 'operators', 'operators', nav) }}
+  {% endif %}
+</nav>

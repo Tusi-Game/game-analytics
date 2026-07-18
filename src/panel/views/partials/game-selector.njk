@@ -1,0 +1,35 @@
+{#
+  partials/game-selector.njk (T-11.14) — the top-bar game dropdown. Populated from
+  the operator's accessible games (v1 = ALL games, spec §3.2). Client-side search
+  via Alpine; selecting a game navigates to its dashboard. Hidden when there are
+  no games.
+#}
+{% from "partials/icons.njk" import icon %}
+{% macro gameSelector(games, currentId) %}
+  {% if games and games | length > 0 %}
+    <div class="relative" x-data="{ open: false, q: '' }">
+      <button type="button" class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50" @click="open = !open">
+        {{ icon('games', 'h-4 w-4') }}
+        <span class="max-w-[10rem] truncate">
+          {%- set current = (games | selectattr('gameId', 'equalto', currentId) | first) -%}
+          {{ current.name if current else 'Select game' }}
+        </span>
+        {{ icon('chevron', 'h-4 w-4') }}
+      </button>
+      <div x-show="open" @click.outside="open = false" x-cloak
+           class="absolute right-0 mt-2 w-64 rounded-lg bg-white shadow-lg ring-1 ring-slate-200 p-2 z-30">
+        <input type="text" x-model="q" placeholder="Search games…" class="w-full mb-2 px-2 py-1.5 text-sm rounded border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <div class="max-h-64 overflow-y-auto">
+          {% for g in games %}
+            <a href="/panel/{{ g.gameId }}"
+               hx-get="/panel/{{ g.gameId }}" hx-target="#content" hx-select="#content" hx-swap="outerHTML" hx-push-url="true"
+               x-show="q === '' || '{{ g.name | lower }}'.includes(q.toLowerCase())"
+               class="block px-2 py-1.5 text-sm rounded hover:bg-slate-50 {% if g.gameId == currentId %}text-brand-600 font-medium{% else %}text-slate-700{% endif %} truncate">
+              {{ g.name }}
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endmacro %}

@@ -1,7 +1,6 @@
 export * from './contracts';
 export * from './redis-keys';
 export * from './kernel';
-export * from './guards';
 export * from './decorators';
 export * from './pipes/validation.pipe';
 export * from './filters/http-exception.filter';

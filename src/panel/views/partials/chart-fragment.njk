@@ -1,0 +1,14 @@
+{#
+  partials/chart-fragment.njk (T-11.15/29) — a Chart.js canvas whose config is
+  serialized into `data-chart-config`. panel.js parses it on load + htmx:afterSwap
+  and calls `new Chart(canvas, config)`. Nunjucks autoescape escapes the attribute
+  (client-supplied labels are safe — no raw HTML injection). `chart` is the config
+  object (already JSON-serializable); `height` sets the container height.
+#}
+{% macro chartFragment(chart, height='16rem') %}
+  {% if chart %}
+    <div style="position:relative;height:{{ height }};width:100%">
+      <canvas data-chart-config="{{ chart | dump }}"></canvas>
+    </div>
+  {% endif %}
+{% endmacro %}

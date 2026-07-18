@@ -1,0 +1,72 @@
+{% extends "layouts/panel.njk" %}
+{% from "partials/flash.njk" import flash %}
+{% from "partials/icons.njk" import icon %}
+
+{% macro knobEditor(gameId, row) %}
+  <form hx-put="/panel/{{ gameId }}/config/{{ row.key }}" hx-target="#content" hx-select="#content" hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
+    {% if row.inputType == 'toggle' %}
+      <select name="value" class="px-2 py-1 text-sm rounded border border-slate-300"><option value="true">true</option><option value="false">false</option></select>
+    {% elif row.inputType == 'select' %}
+      <select name="value" class="px-2 py-1 text-sm rounded border border-slate-300">{% for v in row.enumValues %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select>
+    {% elif row.inputType == 'number' %}
+      <input name="value" type="number" step="any" class="px-2 py-1 text-sm rounded border border-slate-300 w-32" />
+    {% elif row.inputType == 'json' %}
+      <input name="value" type="text" placeholder='JSON e.g. [1,7,30]' class="px-2 py-1 text-sm rounded border border-slate-300 w-56 font-mono" />
+    {% else %}
+      <input name="value" type="text" class="px-2 py-1 text-sm rounded border border-slate-300 w-56" />
+    {% endif %}
+    <button type="submit" class="px-2 py-1 text-xs rounded bg-brand-600 text-white hover:bg-brand-700">Save</button>
+  </form>
+{% endmacro %}
+
+{% macro knobTable(gameId, rows) %}
+  <table class="min-w-full text-sm">
+    <thead class="bg-slate-50 text-slate-500"><tr>
+      <th class="text-left font-medium px-4 py-2">Key</th>
+      <th class="text-left font-medium px-4 py-2">Current</th>
+      <th class="text-left font-medium px-4 py-2">Effect</th>
+      <th class="text-left font-medium px-4 py-2">Edit</th>
+    </tr></thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for row in rows %}
+        <tr>
+          <td class="px-4 py-2"><span class="font-mono text-slate-800">{{ row.key }}</span><div class="text-xs text-slate-400 max-w-md">{{ row.note }}</div></td>
+          <td class="px-4 py-2 font-mono text-slate-700">{{ row.currentValue }}{% if row.isSecret %}<div class="text-[10px] text-amber-600">encrypted at rest</div>{% endif %}</td>
+          <td class="px-4 py-2"><span class="px-2 py-0.5 text-[11px] rounded bg-slate-100 text-slate-600">{{ row.effect }}</span></td>
+          <td class="px-4 py-2">
+            {% if row.editable %}{{ knobEditor(gameId, row) }}{% else %}<span class="text-xs text-slate-400">read-only</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endmacro %}
+
+{% block content %}
+  {{ flash(flash) }}
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-xl font-semibold">{{ gameName }} — Configuration</h1>
+    <a href="/panel/{{ gameId }}/config/audit" hx-get="/panel/{{ gameId }}/config/audit" hx-target="#content" hx-select="#content" hx-swap="outerHTML" hx-push-url="true" class="text-sm text-brand-600 hover:underline">Audit trail →</a>
+  </div>
+  {% if not canWrite %}<div class="mb-4 text-sm text-slate-500">You have read-only access. Editing config requires an admin role.</div>{% endif %}
+
+  {% for group in groups %}
+    <div class="mb-4 rounded-xl bg-white ring-1 ring-slate-200 overflow-hidden" x-data="{ open: {{ 'true' if loop.first else 'false' }} }">
+      <button type="button" @click="open = !open" class="w-full flex items-center justify-between px-4 py-3 text-left">
+        <span class="text-sm font-semibold text-slate-700">{{ group.owner }} <span class="text-xs font-normal text-slate-400">({{ group.rows | length }})</span></span>
+        <span :class="open ? 'rotate-180' : ''" class="transition-transform text-slate-400">{{ icon('chevron', 'h-4 w-4') }}</span>
+      </button>
+      <div x-show="open" x-cloak class="overflow-x-auto border-t border-slate-100">{{ knobTable(gameId, group.rows) }}</div>
+    </div>
+  {% endfor %}
+
+  {% if platformRows and platformRows | length > 0 %}
+    <div class="mb-4 rounded-xl bg-white ring-1 ring-slate-200 overflow-hidden" x-data="{ open: false }">
+      <button type="button" @click="open = !open" class="w-full flex items-center justify-between px-4 py-3 text-left">
+        <span class="text-sm font-semibold text-slate-700">Platform <span class="text-xs font-normal text-slate-400">(env-sourced, read-only · {{ platformRows | length }})</span></span>
+        <span :class="open ? 'rotate-180' : ''" class="transition-transform text-slate-400">{{ icon('chevron', 'h-4 w-4') }}</span>
+      </button>
+      <div x-show="open" x-cloak class="overflow-x-auto border-t border-slate-100">{{ knobTable(gameId, platformRows) }}</div>
+    </div>
+  {% endif %}
+{% endblock %}

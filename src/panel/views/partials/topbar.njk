@@ -1,0 +1,44 @@
+{#
+  partials/topbar.njk (T-11.14) — sticky top bar: hamburger (toggles the sidebar
+  via the layout's Alpine `sidebarOpen`), breadcrumb, game-selector dropdown, and
+  the operator menu (email + logout). Logout POSTs to /panel/logout.
+#}
+{% from "partials/icons.njk" import icon %}
+{% from "partials/game-selector.njk" import gameSelector %}
+
+<header class="sticky top-0 z-20 flex items-center gap-3 h-14 px-4 bg-white border-b border-slate-200">
+  <button type="button" class="lg:hidden text-slate-600 hover:text-slate-900" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle navigation">
+    {{ icon('menu') }}
+  </button>
+
+  <div class="min-w-0 flex-1">
+    <nav class="text-sm text-slate-500 truncate" aria-label="Breadcrumb">
+      {% for crumb in breadcrumb | default([]) %}
+        {% if not loop.first %}<span class="mx-1 text-slate-300">/</span>{% endif %}
+        {% if crumb.href and not loop.last %}
+          <a class="hover:text-slate-700" href="{{ crumb.href }}" hx-get="{{ crumb.href }}" hx-target="#content" hx-select="#content" hx-swap="outerHTML" hx-push-url="true">{{ crumb.label }}</a>
+        {% else %}
+          <span class="text-slate-700 font-medium">{{ crumb.label }}</span>
+        {% endif %}
+      {% endfor %}
+    </nav>
+  </div>
+
+  {{ gameSelector(games | default([]), gameId) }}
+
+  <div class="relative" x-data="{ open: false }">
+    <button type="button" class="flex items-center gap-2 text-sm text-slate-700 hover:text-slate-900" @click="open = !open">
+      <span class="hidden sm:inline max-w-[12rem] truncate">{{ operator.email if operator else 'Operator' }}</span>
+      {% if operator %}<span class="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600 uppercase">{{ operator.role }}</span>{% endif %}
+      {{ icon('chevron', 'h-4 w-4') }}
+    </button>
+    <div x-show="open" @click.outside="open = false" x-cloak
+         class="absolute right-0 mt-2 w-48 rounded-lg bg-white shadow-lg ring-1 ring-slate-200 py-1 text-sm">
+      <form method="post" action="/panel/logout">
+        <button type="submit" class="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50">
+          {{ icon('logout', 'h-4 w-4') }} Log out
+        </button>
+      </form>
+    </div>
+  </div>
+</header>

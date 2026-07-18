@@ -1,0 +1,30 @@
+{% extends "layouts/auth.njk" %}
+
+{% block content %}
+  <h1 class="text-lg font-semibold text-center mb-1">Sign in</h1>
+  <p class="text-sm text-slate-400 text-center mb-5">Operator access to the analytics panel.</p>
+
+  {% if error %}
+    <div class="mb-4 rounded-lg bg-red-500/10 ring-1 ring-red-500/30 px-3 py-2 text-sm text-red-300">{{ error }}</div>
+  {% endif %}
+
+  <form hx-post="/panel/login" hx-target="closest .bg-slate-800" hx-swap="innerHTML" x-data="{ loading: false }" @submit="loading = true">
+    <label class="block text-sm text-slate-300 mb-1" for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="username" required value="{{ email | default('') }}"
+           class="w-full mb-4 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+
+    <label class="block text-sm text-slate-300 mb-1" for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required
+           class="w-full mb-4 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+
+    <label class="block text-sm text-slate-300 mb-1" for="totpCode">MFA code <span class="text-slate-500">(if enrolled)</span></label>
+    <input id="totpCode" name="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*"
+           class="w-full mb-5 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 tracking-widest focus:outline-none focus:ring-2 focus:ring-brand-500" />
+
+    <button type="submit" :disabled="loading"
+            class="w-full py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-medium disabled:opacity-60">
+      <span x-show="!loading">Sign in</span>
+      <span x-show="loading" x-cloak>Signing in…</span>
+    </button>
+  </form>
+{% endblock %}

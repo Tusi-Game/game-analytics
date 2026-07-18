@@ -7,7 +7,10 @@ import { EconomyModule } from '../economy/economy.module';
 import { MonetizationModule } from '../monetization/monetization.module';
 import { ColdStorageModule } from '../cold-storage/cold-storage.module';
 import { ReadModelService } from './read-model.service';
+import { ExceptionReadService } from './exception-read.service';
 import { ReadModelController } from './read-model.controller';
+import { OperatorSessionService } from '../operator/operator-session.service';
+import { OperatorSessionGuard } from '../operator/operator-session.guard';
 
 /**
  * Dashboard bounded context — the JSON read model consumed by the panel. Unit 3
@@ -30,7 +33,17 @@ import { ReadModelController } from './read-model.controller';
     ColdStorageModule,
   ],
   controllers: [ReadModelController],
-  providers: [ReadModelService],
-  exports: [ReadModelService],
+  providers: [
+    ReadModelService,
+    ExceptionReadService,
+    // The real bearer OperatorSessionGuard (011) now guards /v1/dashboard/* — the
+    // dead common/ skeleton is retired. The guard + its Redis-backed session store
+    // depend only on RedisModule (imported above) + the global ConfigService, so
+    // they are provided here directly, avoiding a DashboardModule↔OperatorModule
+    // import cycle (OperatorModule already imports DashboardModule).
+    OperatorSessionService,
+    OperatorSessionGuard,
+  ],
+  exports: [ReadModelService, ExceptionReadService],
 })
 export class DashboardModule {}

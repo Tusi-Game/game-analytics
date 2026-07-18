@@ -1,0 +1,10 @@
+{#
+  games/quick-stats.njk (T-11.35) — a bare live-stats fragment (no layout), swapped
+  into the games list badge cell + the detail Quick Stats card by HTMX polling.
+#}
+<span class="inline-flex items-center gap-2">
+  <span class="text-slate-800 font-medium">DAU {{ dau }}</span>
+  <span class="text-slate-400">·</span>
+  <span class="text-slate-800 font-medium">MAU {{ mau }}</span>
+  {% if provisional %}<span class="px-1.5 py-0.5 text-[10px] rounded bg-amber-100 text-amber-700">provisional</span>{% endif %}
+</span>

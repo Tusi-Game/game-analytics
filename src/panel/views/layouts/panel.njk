@@ -1,0 +1,58 @@
+{#
+  layouts/panel.njk (T-11.12/17) — the main authenticated layout: fixed collapsible
+  sidebar + sticky topbar + scrollable #content. SPA nav: sidebar/topbar links
+  hx-get→#content with hx-push-url; a full page load renders the whole layout, a
+  partial swap replaces only #content (children wrap their body in a #content block
+  with `hx-select="#content"` on the links, so the swap extracts just that node).
+  Self-hosted assets only (P4).
+#}
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ (pageTitle + ' · ') if pageTitle else '' }}{{ panelTitle | default('Game Analytics') }}</title>
+    <link rel="icon" href="/img/logo.svg" />
+    <link rel="stylesheet" href="/styles/tailwind.css" />
+    <style>[x-cloak]{display:none !important;}</style>
+    <script defer src="/scripts/alpine.min.js"></script>
+    <script defer src="/scripts/htmx.min.js"></script>
+    <script defer src="/scripts/chart.min.js"></script>
+    <script defer src="/scripts/panel.js"></script>
+  </head>
+  <body class="h-full bg-slate-100 text-slate-900" x-data="{ sidebarOpen: false }">
+    <div class="min-h-full lg:grid lg:grid-cols-[16rem_1fr]">
+      {# Sidebar — fixed on desktop, slide-over on mobile #}
+      <aside class="hidden lg:block bg-slate-900 text-white">
+        <div class="flex items-center gap-3 h-14 px-4 border-b border-white/10">
+          <img src="{{ logoUrl | default('/img/logo.svg') }}" alt="" class="h-7 w-7" />
+          <span class="font-semibold tracking-tight truncate">{{ panelTitle | default('Game Analytics') }}</span>
+        </div>
+        {% include "partials/sidebar.njk" %}
+      </aside>
+
+      {# Mobile slide-over #}
+      <div x-show="sidebarOpen" x-cloak class="lg:hidden fixed inset-0 z-40">
+        <div class="absolute inset-0 bg-slate-900/50" @click="sidebarOpen = false"></div>
+        <aside class="absolute left-0 top-0 h-full w-64 bg-slate-900 text-white overflow-y-auto">
+          <div class="flex items-center gap-3 h-14 px-4 border-b border-white/10">
+            <img src="{{ logoUrl | default('/img/logo.svg') }}" alt="" class="h-7 w-7" />
+            <span class="font-semibold truncate">{{ panelTitle | default('Game Analytics') }}</span>
+          </div>
+          {% include "partials/sidebar.njk" %}
+        </aside>
+      </div>
+
+      <div class="flex flex-col min-w-0">
+        {% include "partials/topbar.njk" %}
+        <main id="content" class="flex-1 overflow-x-hidden p-4 sm:p-6">
+          {% block content %}{% endblock %}
+        </main>
+        <footer class="px-6 py-3 text-xs text-slate-400 border-t border-slate-200 bg-white flex flex-wrap gap-x-4">
+          <span>{{ panelTitle | default('Game Analytics') }}</span>
+          <span>SSR panel</span>
+        </footer>
+      </div>
+    </div>
+  </body>
+</html>

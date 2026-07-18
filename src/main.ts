@@ -4,10 +4,9 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import * as express from 'express';
-import * as nunjucks from 'nunjucks';
-import { join } from 'path';
 import { AppModule } from './app.module';
 import { AppValidationPipe } from './common/pipes/validation.pipe';
+import { configurePanel } from './panel/panel-bootstrap';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -22,22 +21,9 @@ async function bootstrap(): Promise<void> {
   // depth / rate-limit shedding (Unit 4) governs load, not the parser limit.
   app.use(express.json({ limit: process.env.INGEST_BODY_LIMIT ?? '10mb' }));
 
-  // Panel view engine: Nunjucks over Express. `__dirname` is `src` under
-  // ts-node and `dist` after `nest build` (assets are copied by nest-cli),
-  // so panel/views resolves correctly in both.
-  const viewsPath = join(__dirname, 'panel', 'views');
-  const publicPath = join(__dirname, 'panel', 'public');
-
-  const expressApp = app.getHttpAdapter().getInstance();
-  nunjucks.configure(viewsPath, {
-    express: expressApp,
-    autoescape: true,
-    watch: process.env.NODE_ENV === 'development',
-  });
-  app.setViewEngine('njk');
-
-  // Static assets for the panel (styles, scripts).
-  app.use(express.static(publicPath));
+  // Panel view engine (Nunjucks) + static assets — shared with the e2e harness
+  // via configurePanel so both runtimes wire the panel identically.
+  configurePanel(app);
 
   // Dev-only CORS — a reverse proxy handles this in prod.
   app.enableCors();

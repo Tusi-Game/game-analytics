@@ -1,0 +1,67 @@
+{% extends "layouts/panel.njk" %}
+{% from "partials/empty-state.njk" import emptyState %}
+{% from "partials/flash.njk" import flash %}
+{% from "partials/icons.njk" import icon %}
+
+{% block content %}
+  {{ flash(flash) }}
+  <div x-data="{ q: '', showNew: false }">
+    <div class="flex items-center justify-between mb-4">
+      <h1 class="text-xl font-semibold">Games</h1>
+      {% if operator.role == 'admin' %}
+        <button type="button" @click="showNew = !showNew" class="px-3 py-1.5 text-sm rounded-lg bg-brand-600 text-white hover:bg-brand-700">+ Register Game</button>
+      {% endif %}
+    </div>
+
+    {% if operator.role == 'admin' %}
+      <form x-show="showNew" x-cloak hx-post="/panel/games" class="mb-4 flex flex-wrap items-end gap-3 rounded-xl bg-white ring-1 ring-slate-200 p-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Game name</label>
+          <input name="name" required class="px-3 py-1.5 text-sm rounded border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Game id <span class="text-slate-400">(optional)</span></label>
+          <input name="gameId" class="px-3 py-1.5 text-sm rounded border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+        <button type="submit" class="px-3 py-1.5 text-sm rounded-lg bg-brand-600 text-white hover:bg-brand-700">Register</button>
+        <button type="button" @click="showNew = false" class="px-3 py-1.5 text-sm rounded-lg border border-slate-300 text-slate-700">Cancel</button>
+      </form>
+    {% endif %}
+
+    {% if games and games | length > 0 %}
+      <input type="text" x-model="q" placeholder="Search games…" class="w-full sm:w-72 mb-3 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+      <div class="overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-white">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500">
+            <tr>
+              <th class="text-left font-medium px-4 py-2">Name</th>
+              <th class="text-left font-medium px-4 py-2">Daily events (live)</th>
+              <th class="text-left font-medium px-4 py-2">Registered</th>
+              <th class="px-4 py-2"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {% for g in games %}
+              <tr x-show="q === '' || '{{ g.name | lower }}'.includes(q.toLowerCase())">
+                <td class="px-4 py-2 font-medium text-slate-800">{{ g.name }}<div class="text-xs text-slate-400 font-mono">{{ g.gameId }}</div></td>
+                <td class="px-4 py-2">
+                  <span hx-get="/panel/{{ g.gameId }}/quickstats" hx-trigger="load, every {{ livePollSec }}s" hx-target="this" hx-swap="innerHTML" class="text-slate-400">…</span>
+                </td>
+                <td class="px-4 py-2 text-slate-500">{{ g.registeredAt }}</td>
+                <td class="px-4 py-2 text-right">
+                  <a href="/panel/{{ g.gameId }}" hx-get="/panel/{{ g.gameId }}" hx-target="#content" hx-select="#content" hx-swap="outerHTML" hx-push-url="true" class="text-brand-600 hover:underline">Open</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      {% if operator.role == 'admin' %}
+        {{ emptyState('No games registered yet', 'Register your first game to start collecting analytics.') }}
+      {% else %}
+        {{ emptyState('No games registered yet', 'Ask an administrator to register a game.') }}
+      {% endif %}
+    {% endif %}
+  </div>
+{% endblock %}

@@ -31,6 +31,19 @@ import { SubjectHashService } from '../security/subject-hash.service';
 import { ErasureLedgerEntity } from '../database/entities/erasure-ledger.entity';
 import { GdprRequestAuditEntity, type GdprRequestKind } from '../database/entities/gdpr-request-audit.entity';
 
+/** One row of the GDPR request-history read (over GDPR_REQUEST_AUDIT). */
+export interface GdprAuditRow {
+  auditId: string;
+  gameId: string;
+  operatorId: string;
+  kind: GdprRequestKind;
+  /** Keyed subject hash — NEVER the plaintext user_id (P13). */
+  subjectRef: string;
+  attestation: string;
+  outcome: string;
+  requestedAt: Date;
+}
+
 /** An operator-attested GDPR request (identity verified out-of-band by the studio). */
 export interface AttestedGdprRequest {
   gameId: string;
@@ -101,6 +114,32 @@ export class GdprAdminService {
       subjectRef: r.subjectRef,
       requestedAt: r.requestedAt,
       status: r.status,
+    }));
+  }
+
+  /**
+   * SYNCHRONOUS-model request history (T-11.76/77): the panel's erasure/DSAR
+   * flows run INLINE (there is no async job queue / download-token layer), so the
+   * "history" surface is a read over the GDPR_REQUEST_AUDIT attestation trail —
+   * one row per triggered erasure/DSAR with the attesting operator, keyed subject
+   * ref (never plaintext), and outcome. Scoped to one game (P12), newest first.
+   */
+  async listGdprAudit(gameId: string, kind?: GdprRequestKind, limit = 100): Promise<GdprAuditRow[]> {
+    const where = kind !== undefined ? { gameId, kind } : { gameId };
+    const rows = await this.dataSource.getRepository(GdprRequestAuditEntity).find({
+      where,
+      order: { requestedAt: 'DESC' },
+      take: Math.min(Math.max(1, limit), 1000),
+    });
+    return rows.map((r) => ({
+      auditId: r.auditId,
+      gameId: r.gameId,
+      operatorId: r.operatorId,
+      kind: r.kind,
+      subjectRef: r.subjectRef,
+      attestation: r.attestation,
+      outcome: r.outcome,
+      requestedAt: r.requestedAt,
     }));
   }
 

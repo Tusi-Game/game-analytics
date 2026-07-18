@@ -1,6 +1,5 @@
 import { Global, Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
-import { OperatorSessionGuard } from './guards/operator-session.guard';
 import { AppValidationPipe } from './pipes/validation.pipe';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
@@ -11,7 +10,6 @@ import { WindowedDedupGate, UnimplementedPurchaseDedupGate, PURCHASE_DEDUP_GATE 
  * Shared kernel module (@Global).
  *
  * Exports cross-cutting NestJS plumbing that every story module reuses:
- *   - guards (SDK-key auth, operator session) — bound per-route by consumers;
  *   - the validation pipe skeleton;
  *   - the exception filter and logging interceptor, registered globally here.
  *
@@ -24,12 +22,11 @@ import { WindowedDedupGate, UnimplementedPurchaseDedupGate, PURCHASE_DEDUP_GATE 
 @Global()
 @Module({
   providers: [
-    // The operator-session guard SKELETON (dashboard/panel bind it as a dev no-op
-    // until spec 012 wires the real operator session). The real per-route guard
-    // for the 011 admin API is operator/OperatorSessionGuard. The dead
-    // SdkKeyGuard skeleton was retired in 011 Unit B (the real IngestAuthGuard
-    // owns the only credential-authed route).
-    OperatorSessionGuard,
+    // The dead operator-session guard SKELETON was retired in 012: panel routes
+    // use the cookie-transport PanelSessionGuard and /v1/dashboard/* uses the real
+    // bearer operator/OperatorSessionGuard. The SdkKeyGuard skeleton was likewise
+    // retired in 011 Unit B (the real IngestAuthGuard owns the only credential-
+    // authed route).
     AppValidationPipe,
     // Rehydrate-on-miss + seeded-marker machinery (foundation §2.3, P10).
     RehydrateService,
@@ -40,6 +37,6 @@ import { WindowedDedupGate, UnimplementedPurchaseDedupGate, PURCHASE_DEDUP_GATE 
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
   ],
-  exports: [OperatorSessionGuard, AppValidationPipe, RehydrateService, WindowedDedupGate, PURCHASE_DEDUP_GATE],
+  exports: [AppValidationPipe, RehydrateService, WindowedDedupGate, PURCHASE_DEDUP_GATE],
 })
 export class CommonModule {}

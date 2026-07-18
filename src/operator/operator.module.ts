@@ -9,6 +9,7 @@ import { PasswordService } from './password.service';
 import { MfaService } from './mfa.service';
 import { OperatorSessionService } from './operator-session.service';
 import { OperatorAuthService } from './operator-auth.service';
+import { OperatorAdminService } from './operator-admin.service';
 import { CredentialService } from './credential.service';
 import { LastUsedFlushService } from './last-used-flush.service';
 import { GdprAdminService } from './gdpr-admin.service';
@@ -67,6 +68,7 @@ import { AdminReadModelController } from './admin-read-model.controller';
     MfaService,
     OperatorSessionService,
     OperatorAuthService,
+    OperatorAdminService,
     CredentialService,
     LastUsedFlushService,
     // Unit B services.
@@ -81,6 +83,7 @@ import { AdminReadModelController } from './admin-read-model.controller';
     CredentialService,
     OperatorSessionService,
     OperatorAuthService,
+    OperatorAdminService,
     PasswordService,
     MfaService,
     LastUsedFlushService,

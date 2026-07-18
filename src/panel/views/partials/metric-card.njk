@@ -1,0 +1,26 @@
+{#
+  partials/metric-card.njk (T-11.15) — reusable KPI card: label, big value, trend
+  arrow (↑/↓ + %, `—` when flat), and an amber provisional badge when the figure
+  includes today. `card` = { label, value, trend?{direction,percent}, provisional? }.
+#}
+{% from "partials/icons.njk" import icon %}
+{% macro metricCard(card) %}
+  <div class="rounded-xl bg-white ring-1 ring-slate-200 p-4">
+    <div class="flex items-center justify-between">
+      <span class="text-xs font-medium uppercase tracking-wide text-slate-500">{{ card.label }}</span>
+      {% if card.provisional %}
+        <span class="px-1.5 py-0.5 text-[10px] rounded bg-amber-100 text-amber-700 font-medium" title="Includes today — live figure, may change on flush">provisional</span>
+      {% endif %}
+    </div>
+    <div class="mt-2 text-2xl font-semibold text-slate-900">{{ card.value }}</div>
+    {% if card.trend %}
+      {% if card.trend.direction == 'up' %}
+        <div class="mt-1 flex items-center gap-1 text-sm text-emerald-600">{{ icon('up', 'h-4 w-4') }} {{ card.trend.percent }}%</div>
+      {% elif card.trend.direction == 'down' %}
+        <div class="mt-1 flex items-center gap-1 text-sm text-red-600">{{ icon('down', 'h-4 w-4') }} {{ card.trend.percent }}%</div>
+      {% else %}
+        <div class="mt-1 text-sm text-slate-400">&mdash;</div>
+      {% endif %}
+    {% endif %}
+  </div>
+{% endmacro %}

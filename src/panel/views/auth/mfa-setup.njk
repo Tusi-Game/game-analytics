@@ -1,0 +1,15 @@
+{% extends "layouts/auth.njk" %}
+
+{% block content %}
+  <h1 class="text-lg font-semibold text-center mb-2">Two-factor authentication</h1>
+  <p class="text-sm text-slate-400 mb-5">
+    MFA is verified at sign-in. Enrolment and reset of an authenticator secret are
+    managed by an administrator on the operator account form. If you have an
+    authenticator enrolled, enter its 6-digit code on the sign-in page along with
+    your password.
+  </p>
+  <a href="/panel/login"
+     class="block w-full text-center py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-medium">
+    Back to sign in
+  </a>
+{% endblock %}

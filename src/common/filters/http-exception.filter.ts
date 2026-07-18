@@ -29,6 +29,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
+    // A guard/handler may have already written the response (e.g. the panel
+    // cookie guard redirects to /panel/login and returns false, which Nest turns
+    // into a ForbiddenException that lands here). Writing again would throw
+    // ERR_HTTP_HEADERS_SENT — bail out when the response is already committed.
+    if (response.headersSent) {
+      return;
+    }
+
     const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const message = this.resolveMessage(exception);
     const reason = this.resolveReason(exception);

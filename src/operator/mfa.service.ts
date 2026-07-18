@@ -58,4 +58,18 @@ export class MfaService {
   currentCode(secret: string): string {
     return authenticator.generate(secret);
   }
+
+  /**
+   * Verify a submitted TOTP code against a RAW (not-yet-encrypted) secret. Used
+   * during enrolment (012 OperatorAdminService.setMfa): the operator proves
+   * possession of the freshly generated secret BEFORE its encrypted form is
+   * persisted, so a mistyped secret never becomes a locked-out account.
+   */
+  verifyRaw(code: string, secret: string): boolean {
+    try {
+      return authenticator.check(code, secret);
+    } catch {
+      return false;
+    }
+  }
 }

@@ -1,0 +1,16 @@
+{#
+  partials/error-alert.njk (T-11.15) — dismissible error banner with an optional
+  retry (hx-get into a target). `message` + optional `retryHref`/`retryTarget`.
+#}
+{% from "partials/icons.njk" import icon %}
+{% macro errorAlert(message, retryHref='', retryTarget='') %}
+  <div class="flex items-start gap-3 rounded-lg bg-red-50 ring-1 ring-red-200 p-3 text-sm text-red-800" x-data="{ show: true }" x-show="show">
+    <span class="text-red-500 mt-0.5">{{ icon('warning', 'h-5 w-5') }}</span>
+    <div class="flex-1">{{ message }}</div>
+    {% if retryHref %}
+      <button type="button" hx-get="{{ retryHref }}" hx-target="{{ retryTarget }}" hx-swap="innerHTML"
+              class="px-2 py-1 rounded bg-white ring-1 ring-red-200 text-red-700 hover:bg-red-100">Retry</button>
+    {% endif %}
+    <button type="button" @click="show = false" class="text-red-400 hover:text-red-600">&times;</button>
+  </div>
+{% endmacro %}

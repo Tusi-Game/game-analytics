@@ -145,3 +145,28 @@ export function credUseField(kind: 'sdk' | 'srv', id: string): string {
 
 /** TTL (seconds) for the last-use coalesce hash — one flush cadence + margin. */
 export const CRED_USE_TTL_SECONDS = 15 * 60;
+
+/**
+ * Panel (012) operational key builders under the reserved `panel:*` namespace
+ * (R8). Everything here is TTL-bounded — safe under Redis `noeviction` — and
+ * platform-scoped (NOT a per-game result domain). The panel is a pure READER of
+ * result domains; the only Redis writes it makes are these short-lived
+ * presentation-state flags. `_panel` is a fixed non-game placeholder segment so
+ * the day-less grammar validates and these keys can never collide with a per-game
+ * result domain.
+ */
+export const PanelKeys = {
+  /**
+   * `_panel:panel:credshow:{credential_id}:{operator_id}` — the credential
+   * show-once flag (spec §2.2 `credential-show.njk`, T-11.37). Set with a 5-min
+   * TTL when a credential's raw value is minted; the show page renders the raw
+   * value exactly once behind this flag, then consumes it. The RAW value is NEVER
+   * stored here — only the presence flag gates the (server-held, per-request)
+   * value. TTL-bounded (R8/P13).
+   */
+  credentialShow: (credentialId: string, operatorId: string): string =>
+    dayLessKey('_panel', 'panel', 'credshow', credentialId, operatorId),
+} as const;
+
+/** TTL (seconds) for the credential show-once flag — 5 minutes (spec §2.2). */
+export const PANEL_CREDENTIAL_SHOW_TTL_SECONDS = 5 * 60;

@@ -1,0 +1,99 @@
+{% extends "layouts/panel.njk" %}
+{% from "partials/flash.njk" import flash %}
+{% from "partials/icons.njk" import icon %}
+{% from "partials/confirm-modal.njk" import confirmModal %}
+
+{% macro credRow(gameId, cred, kind, canWrite) %}
+  <tr>
+    <td class="px-4 py-2 font-mono text-slate-700">{{ cred.prefix }}…</td>
+    <td class="px-4 py-2 text-slate-500">{{ cred.createdAt }}</td>
+    <td class="px-4 py-2 text-slate-500">{{ cred.lastUsedAt if cred.lastUsedAt else '—' }}</td>
+    <td class="px-4 py-2">
+      {% if cred.revokedAt %}<span class="px-2 py-0.5 text-xs rounded bg-slate-100 text-slate-500">revoked</span>
+      {% else %}<span class="px-2 py-0.5 text-xs rounded bg-emerald-100 text-emerald-700">active</span>{% endif %}
+    </td>
+    <td class="px-4 py-2 text-right">
+      {% if canWrite and not cred.revokedAt %}
+        {% if kind == 'sdk_key' %}
+          {{ confirmModal('revsdk-' + cred.id, 'Revoke SDK key',
+            'All shipped builds using this key will be unable to send events. This cannot be undone.',
+            'REVOKE', '/panel/' + gameId + '/sdk-keys/' + cred.id, 'delete', 'Revoke',
+            'px-2 py-1 text-xs rounded border border-red-300 text-red-700 hover:bg-red-50') }}
+        {% else %}
+          {{ confirmModal('revsrv-' + cred.id, 'Revoke server credential',
+            'This server credential will stop authenticating immediately.',
+            '', '/panel/' + gameId + '/server-credentials/' + cred.id, 'delete', 'Revoke',
+            'px-2 py-1 text-xs rounded border border-red-300 text-red-700 hover:bg-red-50') }}
+        {% endif %}
+      {% endif %}
+    </td>
+  </tr>
+{% endmacro %}
+
+{% block content %}
+  {{ flash(flash) }}
+
+  {% if retired %}
+    <div class="mb-4 rounded-lg bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-sm text-amber-800">
+      This game is <strong>retired</strong> — ingestion is stopped, data is preserved. Credential actions are disabled.
+    </div>
+  {% endif %}
+
+  <h1 class="text-xl font-semibold mb-4">{{ gameName }} <span class="text-sm font-normal text-slate-400 font-mono">{{ gameId }}</span></h1>
+
+  {# Quick stats #}
+  <div class="mb-6 rounded-xl bg-white ring-1 ring-slate-200 p-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-slate-700">Quick stats <span class="text-xs font-normal text-slate-400">(live, current day)</span></h2>
+      <a href="/panel/{{ gameId }}" hx-get="/panel/{{ gameId }}" hx-target="#content" hx-select="#content" hx-swap="outerHTML" hx-push-url="true" class="text-sm text-brand-600 hover:underline">View full dashboard →</a>
+    </div>
+    <div class="mt-2" hx-get="/panel/{{ gameId }}/quickstats" hx-trigger="load, every {{ livePollSec }}s" hx-swap="innerHTML"><span class="text-slate-400">Loading…</span></div>
+  </div>
+
+  {# SDK keys #}
+  <div class="mb-6 rounded-xl bg-white ring-1 ring-slate-200">
+    <div class="flex items-center justify-between p-4 border-b border-slate-100">
+      <h2 class="text-sm font-semibold text-slate-700">SDK keys <span class="text-xs font-normal text-slate-400">(client / untrusted)</span></h2>
+      {% if canWrite and not retired %}
+        <form hx-post="/panel/{{ gameId }}/sdk-keys"><button class="px-2.5 py-1 text-xs rounded-lg bg-brand-600 text-white hover:bg-brand-700">Rotate / issue key</button></form>
+      {% endif %}
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500"><tr><th class="text-left font-medium px-4 py-2">Prefix</th><th class="text-left font-medium px-4 py-2">Created</th><th class="text-left font-medium px-4 py-2">Last used</th><th class="text-left font-medium px-4 py-2">Status</th><th></th></tr></thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for k in sdkKeys %}{{ credRow(gameId, k, 'sdk_key', canWrite and not retired) }}{% else %}<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">No SDK keys.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# Server credentials #}
+  <div class="mb-6 rounded-xl bg-white ring-1 ring-slate-200">
+    <div class="flex items-center justify-between p-4 border-b border-slate-100">
+      <h2 class="text-sm font-semibold text-slate-700">Server credentials <span class="text-xs font-normal text-slate-400">(server / trusted)</span></h2>
+      {% if canWrite and not retired %}
+        <form hx-post="/panel/{{ gameId }}/server-credentials"><button class="px-2.5 py-1 text-xs rounded-lg bg-brand-600 text-white hover:bg-brand-700">Create credential</button></form>
+      {% endif %}
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500"><tr><th class="text-left font-medium px-4 py-2">Prefix</th><th class="text-left font-medium px-4 py-2">Created</th><th class="text-left font-medium px-4 py-2">Last used</th><th class="text-left font-medium px-4 py-2">Status</th><th></th></tr></thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for c in serverCreds %}{{ credRow(gameId, c, 'server_credential', canWrite and not retired) }}{% else %}<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">No server credentials.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# Retire #}
+  {% if canWrite and not retired %}
+    <div class="rounded-xl bg-white ring-1 ring-red-200 p-4">
+      <h2 class="text-sm font-semibold text-red-700 mb-1">Retire game</h2>
+      <p class="text-sm text-slate-600 mb-3">Retiring stops all ingestion but preserves data. Cold storage continues for existing files.</p>
+      {{ confirmModal('retire-' + gameId, 'Retire game',
+        'This revokes all keys and credentials (ingestion stops). Data and cold storage are preserved.',
+        '', '/panel/' + gameId + '/settings/retire', 'post', 'Retire game') }}
+    </div>
+  {% endif %}
+{% endblock %}

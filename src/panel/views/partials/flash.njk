@@ -1,0 +1,21 @@
+{#
+  partials/flash.njk (T-11.16) — dismissible flash banners with a 5s auto-dismiss
+  (Alpine). `flash` = { type: 'success'|'error'|'warning'|'info', message }. The
+  flash is passed once via the redirect target's query and rendered here; it is
+  not stored server-side (stateless — the panel uses no server session flash bag).
+#}
+{% macro flash(f) %}
+  {% if f and f.message %}
+    {% set tone = {
+      'success': 'bg-emerald-50 ring-emerald-200 text-emerald-800',
+      'error':   'bg-red-50 ring-red-200 text-red-800',
+      'warning': 'bg-amber-50 ring-amber-200 text-amber-800',
+      'info':    'bg-brand-50 ring-brand-200 text-brand-700'
+    } %}
+    <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)"
+         class="mb-4 flex items-start gap-3 rounded-lg ring-1 p-3 text-sm {{ tone[f.type] | default(tone['info']) }}">
+      <div class="flex-1">{{ f.message }}</div>
+      <button type="button" @click="show = false" class="opacity-60 hover:opacity-100">&times;</button>
+    </div>
+  {% endif %}
+{% endmacro %}

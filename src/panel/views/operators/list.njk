@@ -1,0 +1,49 @@
+{% extends "layouts/panel.njk" %}
+{% from "partials/flash.njk" import flash %}
+{% from "partials/confirm-modal.njk" import confirmModal %}
+{% from "partials/empty-state.njk" import emptyState %}
+
+{% block content %}
+  {{ flash(flash) }}
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-xl font-semibold">Operator accounts</h1>
+    <a href="/panel/operators/new" hx-get="/panel/operators/new" hx-target="#content" hx-select="#content" hx-swap="outerHTML" hx-push-url="true" class="px-3 py-1.5 text-sm rounded-lg bg-brand-600 text-white hover:bg-brand-700">+ Add operator</a>
+  </div>
+
+  {% if operators and operators | length > 0 %}
+    <div class="rounded-xl bg-white ring-1 ring-slate-200 overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500"><tr>
+          <th class="text-left font-medium px-4 py-2">Email</th>
+          <th class="text-left font-medium px-4 py-2">Role</th>
+          <th class="text-left font-medium px-4 py-2">MFA</th>
+          <th class="text-left font-medium px-4 py-2">Status</th>
+          <th class="px-4 py-2"></th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for op in operators %}
+            <tr>
+              <td class="px-4 py-2 text-slate-800">{{ op.email }}</td>
+              <td class="px-4 py-2"><span class="px-2 py-0.5 text-xs rounded {% if op.role == 'admin' %}bg-brand-100 text-brand-700{% else %}bg-slate-100 text-slate-600{% endif %}">{{ op.role }}</span></td>
+              <td class="px-4 py-2">{% if op.mfaEnrolled %}<span class="text-emerald-600">enrolled</span>{% else %}<span class="text-slate-400">—</span>{% endif %}</td>
+              <td class="px-4 py-2">{% if op.disabled %}<span class="px-2 py-0.5 text-xs rounded bg-slate-100 text-slate-500">disabled</span>{% else %}<span class="px-2 py-0.5 text-xs rounded bg-emerald-100 text-emerald-700">active</span>{% endif %}</td>
+              <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
+                <a href="/panel/operators/{{ op.operatorId }}/edit" hx-get="/panel/operators/{{ op.operatorId }}/edit" hx-target="#content" hx-select="#content" hx-swap="outerHTML" hx-push-url="true" class="text-brand-600 hover:underline text-xs">Edit</a>
+                {% if op.disabled %}
+                  <form class="inline" hx-post="/panel/operators/{{ op.operatorId }}/enable" hx-target="#content" hx-select="#content" hx-swap="outerHTML"><button class="text-emerald-600 hover:underline text-xs">Enable</button></form>
+                {% else %}
+                  {{ confirmModal('disable-' + op.operatorId, 'Disable operator',
+                    'The account is disabled (never deleted) — it can no longer log in but is preserved for audit integrity.',
+                    '', '/panel/operators/' + op.operatorId + '/disable', 'post', 'Disable',
+                    'text-red-600 hover:underline text-xs') }}
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {{ emptyState('No operators', 'Add operator accounts for your studio staff.') }}
+  {% endif %}
+{% endblock %}

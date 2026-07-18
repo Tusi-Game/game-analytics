@@ -1,0 +1,47 @@
+{% extends "layouts/panel.njk" %}
+{% from "partials/empty-state.njk" import emptyState %}
+
+{% block content %}
+  <h1 class="text-xl font-semibold mb-4">{{ gameName }} — Cold storage</h1>
+
+  <div class="mb-6 rounded-xl bg-white ring-1 ring-slate-200 p-4">
+    <div class="flex flex-wrap items-center gap-4 text-sm">
+      <span>Status:
+        {% if enabled %}<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">enabled</span>
+        {% else %}<span class="px-2 py-0.5 rounded bg-slate-100 text-slate-500">disabled</span>{% endif %}
+      </span>
+      <span class="text-slate-500">Bucket: <span class="font-mono text-slate-700">{{ bucket }}</span></span>
+      <span class="text-slate-500">Schedule: <span class="font-mono text-slate-700">{{ schedule }}</span></span>
+    </div>
+    {% if not enabled %}<p class="mt-2 text-sm text-slate-500">Cold storage is off. Enable it in configuration.</p>{% endif %}
+  </div>
+
+  {% if rows and rows | length > 0 %}
+    <div class="rounded-xl bg-white ring-1 ring-slate-200 overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500"><tr>
+          <th class="text-left font-medium px-4 py-2">Day</th>
+          <th class="text-left font-medium px-4 py-2">Status</th>
+          <th class="text-left font-medium px-4 py-2">Uploaded at</th>
+          <th class="text-left font-medium px-4 py-2">Object</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for r in rows %}
+            <tr>
+              <td class="px-4 py-2 font-mono text-slate-700">{{ r.utcDay }}</td>
+              <td class="px-4 py-2">
+                {% if r.status == 'uploaded' %}<span class="px-2 py-0.5 text-xs rounded bg-emerald-100 text-emerald-700">uploaded</span>
+                {% elif r.status == 'local-deleted' %}<span class="px-2 py-0.5 text-xs rounded bg-slate-100 text-slate-600">local-deleted</span>
+                {% else %}<span class="px-2 py-0.5 text-xs rounded bg-amber-100 text-amber-700">{{ r.status }}</span>{% endif %}
+              </td>
+              <td class="px-4 py-2 text-slate-500">{{ r.uploadedAt if r.uploadedAt else '—' }}</td>
+              <td class="px-4 py-2 font-mono text-slate-400 text-xs truncate max-w-xs">{{ r.objectRef if r.objectRef else '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {{ emptyState('No uploads recorded', 'Cold-storage upload history appears here once files ship.') }}
+  {% endif %}
+{% endblock %}

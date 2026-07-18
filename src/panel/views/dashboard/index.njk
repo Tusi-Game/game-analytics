@@ -1,0 +1,62 @@
+{% extends "layouts/panel.njk" %}
+{% from "partials/metric-card.njk" import metricCard %}
+{% from "partials/period-selector.njk" import periodSelector %}
+{% from "partials/chart-fragment.njk" import chartFragment %}
+{% from "partials/empty-state.njk" import emptyState %}
+
+{% block content %}
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-xl font-semibold">{{ gameName }} — Overview</h1>
+    {{ periodSelector('/panel/' + gameId, period) }}
+  </div>
+
+  {# 8-card KPI row #}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+    {% for card in cards %}{{ metricCard(card) }}{% endfor %}
+  </div>
+
+  {# Event activity chart #}
+  <div class="rounded-xl bg-white ring-1 ring-slate-200 p-4 mb-6">
+    <h2 class="text-sm font-semibold text-slate-700 mb-3">Event activity</h2>
+    {{ chartFragment(eventChart, '18rem') }}
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-6">
+    {# Top events #}
+    <div class="rounded-xl bg-white ring-1 ring-slate-200">
+      <h2 class="text-sm font-semibold text-slate-700 p-4 border-b border-slate-100">Top events</h2>
+      {% if topEvents and topEvents | length > 0 %}
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="bg-slate-50 text-slate-500"><tr><th class="text-left font-medium px-4 py-2">Event</th><th class="text-right font-medium px-4 py-2">Count</th><th class="text-right font-medium px-4 py-2">% of total</th></tr></thead>
+            <tbody class="divide-y divide-slate-100">
+              {% for e in topEvents %}
+                <tr><td class="px-4 py-2 font-mono text-slate-700">{{ e.name }}</td><td class="px-4 py-2 text-right">{{ e.count }}</td><td class="px-4 py-2 text-right text-slate-500">{{ e.pct }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}{{ emptyState('No events yet', 'Events appear here once your game starts sending them.') }}{% endif %}
+    </div>
+
+    {# Latest exceptions #}
+    <div class="rounded-xl bg-white ring-1 ring-slate-200">
+      <div class="flex items-center justify-between p-4 border-b border-slate-100">
+        <h2 class="text-sm font-semibold text-slate-700">Latest exceptions {% if exceptions.provisional %}<span class="px-1.5 py-0.5 text-[10px] rounded bg-amber-100 text-amber-700">provisional</span>{% endif %}</h2>
+        <a href="/panel/{{ gameId }}/ops/exceptions" hx-get="/panel/{{ gameId }}/ops/exceptions" hx-target="#content" hx-select="#content" hx-swap="outerHTML" hx-push-url="true" class="text-sm text-brand-600 hover:underline">View all →</a>
+      </div>
+      <div class="p-4">
+        {% if exceptions.total > 0 %}
+          <p class="text-sm text-slate-600 mb-2">Today: <strong>{{ exceptions.total }}</strong> total</p>
+          <ul class="flex flex-wrap gap-2">
+            {% for r in exceptions.perReason %}
+              <li class="px-2 py-1 text-xs rounded bg-slate-100 text-slate-700">{{ r.count }} {{ r.reason }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-sm text-emerald-700">All clear — no exceptions today.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endblock %}

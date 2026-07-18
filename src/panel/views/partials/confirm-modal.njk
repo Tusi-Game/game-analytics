@@ -1,0 +1,40 @@
+{#
+  partials/confirm-modal.njk (T-11.15/83) — Alpine type-to-confirm dialog for
+  destructive actions. The trigger button sets `open=true`; the operator must type
+  `confirmWord` to enable the confirm button, which submits the given HTMX action.
+
+  Params:
+    id          unique id (multiple modals per page)
+    title       heading
+    body        warning body (HTML-safe text)
+    confirmWord the word the operator must type (e.g. "REVOKE"); '' = plain confirm
+    action      the URL to hit on confirm
+    method      'post' | 'delete' (HTMX verb)
+    triggerLabel / triggerClass  the button that opens the modal
+#}
+{% macro confirmModal(id, title, body, confirmWord, action, method, triggerLabel, triggerClass='') %}
+  <div x-data="{ open: false, typed: '' }" class="inline">
+    <button type="button" @click="open = true" class="{{ triggerClass | default('px-3 py-1.5 text-sm rounded-lg border border-red-300 text-red-700 hover:bg-red-50') }}">
+      {{ triggerLabel }}
+    </button>
+    <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" @keydown.escape.window="open = false">
+      <div class="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" @click.outside="open = false">
+        <h3 class="text-lg font-semibold text-slate-900">{{ title }}</h3>
+        <div class="mt-2 text-sm text-slate-600">{{ body }}</div>
+        {% if confirmWord %}
+          <label class="mt-4 block text-sm text-slate-700">Type <span class="font-mono font-semibold">{{ confirmWord }}</span> to confirm</label>
+          <input type="text" x-model="typed" class="mt-1 w-full px-2 py-1.5 text-sm rounded border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-500" />
+        {% endif %}
+        <div class="mt-5 flex justify-end gap-2">
+          <button type="button" @click="open = false" class="px-3 py-1.5 text-sm rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="button"
+                  {% if method == 'delete' %}hx-delete{% else %}hx-post{% endif %}="{{ action }}"
+                  hx-target="#content" hx-select="#content" hx-swap="outerHTML"
+                  {% if confirmWord %}:disabled="typed !== '{{ confirmWord }}'" :class="typed !== '{{ confirmWord }}' ? 'opacity-50 cursor-not-allowed' : ''"{% endif %}
+                  @click="open = false"
+                  class="px-3 py-1.5 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endmacro %}

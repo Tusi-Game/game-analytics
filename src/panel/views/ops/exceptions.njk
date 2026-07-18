@@ -1,0 +1,43 @@
+{% extends "layouts/panel.njk" %}
+{% from "partials/period-selector.njk" import periodSelector %}
+{% from "partials/empty-state.njk" import emptyState %}
+
+{% block content %}
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-xl font-semibold">{{ gameName }} — Exceptions</h1>
+    {% if visible %}{{ periodSelector('/panel/' + gameId + '/ops/exceptions', period) }}{% endif %}
+  </div>
+
+  {% if not visible %}
+    <div class="rounded-xl bg-white ring-1 ring-slate-200 p-6 text-sm text-slate-500">
+      The exception counter is hidden for this game. Enable <span class="font-mono">drop_counter_visible</span> in configuration to view it.
+    </div>
+  {% elif total > 0 %}
+    <p class="text-sm text-slate-600 mb-3">{{ total }} exceptions in the selected period.</p>
+    <div class="rounded-xl bg-white ring-1 ring-slate-200 overflow-x-auto">
+      <table class="min-w-full text-xs">
+        <thead class="bg-slate-50 text-slate-500"><tr>
+          <th class="text-left font-medium px-3 py-2 sticky left-0 bg-slate-50">Day</th>
+          {% for r in reasons %}<th class="text-right font-medium px-2 py-2 whitespace-nowrap">{{ r }}</th>{% endfor %}
+          <th class="text-right font-medium px-3 py-2">Total</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for row in rows %}
+            <tr>
+              <td class="px-3 py-1.5 font-mono text-slate-700 sticky left-0 bg-white">{{ row.day }}{% if row.provisional %}<span class="ml-1 text-[10px] text-amber-500">•</span>{% endif %}</td>
+              {% for r in reasons %}
+                {% set c = row.counts[r] %}
+                {% set intensity = (c / maxCell) if maxCell > 0 else 0 %}
+                <td class="px-2 py-1.5 text-right {% if c > 0 %}text-slate-800{% else %}text-slate-300{% endif %}"
+                    style="{% if c > 0 %}background-color: rgba(239,68,68,{{ (0.08 + intensity * 0.5) | round(2) }}){% endif %}">{{ c }}</td>
+              {% endfor %}
+              <td class="px-3 py-1.5 text-right font-medium text-slate-700">{{ row.total }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {{ emptyState('All clear', 'No exceptions in this period.') }}
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "layouts/panel.njk" %}
+{% from "partials/period-selector.njk" import periodSelector %}
+{% from "partials/chart-fragment.njk" import chartFragment %}
+{% from "partials/metric-card.njk" import metricCard %}
+{% from "partials/empty-state.njk" import emptyState %}
+
+{% block content %}
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <h1 class="text-xl font-semibold">{{ gameName }} — Monetization</h1>
+    <div class="flex items-center gap-2">
+      <select onchange="window.location.href='/panel/{{ gameId }}/monetization?period={{ period }}&dim='+this.value"
+              class="px-2 py-1.5 text-sm rounded-lg border border-slate-300 bg-white">
+        {% for d in dimensions %}<option value="{{ d }}" {% if d == dimension %}selected{% endif %}>{{ d }}</option>{% endfor %}
+      </select>
+      {{ periodSelector('/panel/' + gameId + '/monetization', period, 'dim=' + dimension) }}
+    </div>
+  </div>
+
+  {% if hasData %}
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      {{ metricCard({ label: 'Revenue', value: summary.revenue, provisional: provisional }) }}
+      {{ metricCard({ label: 'ARPPU', value: summary.arppu, provisional: provisional }) }}
+      {{ metricCard({ label: 'Conversion', value: summary.conversion, provisional: provisional }) }}
+      {{ metricCard({ label: 'Paying users', value: summary.payingUsers, provisional: provisional }) }}
+    </div>
+
+    <div class="rounded-xl bg-white ring-1 ring-slate-200 p-4 mb-6">
+      <h2 class="text-sm font-semibold text-slate-700 mb-3">Revenue by {{ dimension }}</h2>
+      {{ chartFragment(revChart, '18rem') }}
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-6 mb-6">
+      <div class="rounded-xl bg-white ring-1 ring-slate-200">
+        <h2 class="text-sm font-semibold text-slate-700 p-4 border-b border-slate-100">Top product by {{ dimension }}</h2>
+        <table class="min-w-full text-sm"><thead class="bg-slate-50 text-slate-500"><tr><th class="text-left font-medium px-4 py-2">{{ dimension }}</th><th class="text-left font-medium px-4 py-2">Top product</th><th class="text-right font-medium px-4 py-2">Revenue</th></tr></thead>
+          <tbody class="divide-y divide-slate-100">
+            {% for r in topByDim %}<tr><td class="px-4 py-2 text-slate-700">{{ r.value }}</td><td class="px-4 py-2 font-mono text-slate-600">{{ r.topProduct }}</td><td class="px-4 py-2 text-right">{{ r.revenue }}</td></tr>{% else %}<tr><td colspan="3" class="px-4 py-6 text-center text-slate-400">No revenue in period.</td></tr>{% endfor %}
+          </tbody></table>
+      </div>
+      <div class="rounded-xl bg-white ring-1 ring-slate-200">
+        <h2 class="text-sm font-semibold text-slate-700 p-4 border-b border-slate-100">Context coverage <span class="text-xs font-normal text-slate-400">(% revenue with full context)</span></h2>
+        <table class="min-w-full text-sm"><tbody class="divide-y divide-slate-100">
+          {% for c in coverageRows %}<tr><td class="px-4 py-2 text-slate-700">{{ c.dim }}</td><td class="px-4 py-2 text-right text-slate-600">{{ c.value }}</td></tr>{% else %}<tr><td colspan="2" class="px-4 py-6 text-center text-slate-400">No client dimensions.</td></tr>{% endfor %}
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="rounded-xl bg-white ring-1 ring-slate-200 p-4">
+      <h2 class="text-sm font-semibold text-slate-700 mb-2">Whale concentration <span class="text-xs font-normal text-slate-400">(this month)</span> {% if whale.lowConfidence %}<span class="px-1.5 py-0.5 text-[10px] rounded bg-amber-100 text-amber-700">low confidence</span>{% endif %}</h2>
+      <p class="text-sm text-slate-600 mb-2">{{ whale.payingUsers }} payers · {{ whale.revenue }} revenue{% if whale.indeterminatePayers > 0 %} · {{ whale.indeterminatePayers }} indeterminate{% endif %}</p>
+      <ul class="flex flex-wrap gap-2">
+        {% for c in whale.cohorts %}<li class="px-2 py-1 text-xs rounded bg-slate-100 text-slate-700">Top {{ c.percent }}% → {{ c.share }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% else %}
+    {{ emptyState('No purchases in period', 'Segmented monetization appears once verified purchases arrive.') }}
+  {% endif %}
+{% endblock %}
