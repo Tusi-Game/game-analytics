@@ -69,6 +69,50 @@ describe('IngestController fast-ack', () => {
     expect(job.v).toBe(1); // absent on wire ⇒ 1
   });
 
+  it('stamps a numeric server_received_time even when the SDK omits it (else the kernel drops every event)', async () => {
+    const queue = new FakeQueue();
+    const controller = makeController(queue);
+
+    // Real SDK shape: the envelope-factory structurally OMITS server_received_time
+    // (collector-stamped, §1.1). The door must fill it in.
+    const t = Date.parse('2026-07-18T12:00:00Z');
+    const sdkBatch: BatchRequest = {
+      sdk: { name: 'sdk', version: '1' },
+      events: [
+        {
+          event_id: 'evt-1',
+          name: 'session',
+          kind: 'session',
+          client_event_time: t,
+          client_sent_time: t,
+          props: {},
+        } as unknown as BatchRequest['events'][number],
+      ],
+    };
+
+    await controller.ingest(sdkBatch, 'game-42', 'client');
+
+    const stamped = queue.added[0]!.data.events[0]!;
+    expect(typeof stamped.server_received_time).toBe('number');
+    expect(Number.isFinite(stamped.server_received_time)).toBe(true);
+  });
+
+  it('overwrites any body-supplied server_received_time (trust boundary #9)', async () => {
+    const queue = new FakeQueue();
+    const controller = makeController(queue);
+
+    // A hostile/legacy body claims an ancient arrival time — must be discarded.
+    await controller.ingest(
+      batch({ events: [{ ...batch().events[0]!, server_received_time: 1 }] }),
+      'game-42',
+      'client',
+    );
+
+    const stamped = queue.added[0]!.data.events[0]!;
+    expect(stamped.server_received_time).not.toBe(1);
+    expect(Number.isFinite(stamped.server_received_time)).toBe(true);
+  });
+
   it('stamps the wire v when present', async () => {
     const queue = new FakeQueue();
     const controller = makeController(queue);

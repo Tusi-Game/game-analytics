@@ -66,9 +66,20 @@ export class IngestController {
     const v = typeof batch.v === 'number' && Number.isFinite(batch.v) ? batch.v : 1;
     const batchId = randomUUID();
 
-    // Stamp the SERVER-DERIVED game_id onto every envelope; the body value is
-    // discarded here so the worker/kernel can never trust it (DARK-SPOT #9).
-    const stamped: EventEnvelope[] = events.map((event) => ({ ...event, game_id: gameId }));
+    // Stamp the SERVER-DERIVED fields onto every envelope; any body-supplied value
+    // is discarded here so the worker/kernel can never trust it (DARK-SPOT #9). The
+    // SDK deliberately omits BOTH `game_id` and `server_received_time` (§1.1 —
+    // collector-stamped): the front door IS the collector, so we stamp the receipt
+    // clock here. Without it the kernel skew-corrects against `undefined`, produces
+    // a NaN corrected time, and `logicalDay` throws → every event is dropped as
+    // `unparseable` and NOTHING is counted. One instant for the whole batch keeps
+    // the batch's arrival time coherent for skew / seal / arrival-day bucketing.
+    const serverReceivedTime = Date.now();
+    const stamped: EventEnvelope[] = events.map((event) => ({
+      ...event,
+      game_id: gameId,
+      server_received_time: serverReceivedTime,
+    }));
 
     const job: IngestBatchJob = { batch_id: batchId, v, provenance, events: stamped };
 
