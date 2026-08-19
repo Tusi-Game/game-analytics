@@ -22,7 +22,7 @@ import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from 
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker, type Job } from 'bullmq';
 import { Redis } from 'ioredis';
-import { INGEST_QUEUE, INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION } from '../queue/queue.constants';
+import { COLD_STORAGE_QUEUE, COLD_STORAGE_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION } from '../queue/queue.constants';
 import { NightlyShipmentService, type ShipmentSummary } from './nightly-shipment.service';
 
 /** BullMQ job name for the cold-storage shipment sweep. */
@@ -39,7 +39,7 @@ export class ColdStorageWorker implements OnModuleInit, OnApplicationShutdown {
 
   constructor(
     @Inject(INGEST_WORKER_CONNECTION) private readonly workerConnection: { connection: Redis },
-    @Inject(INGEST_QUEUE_PROVIDER) private readonly queue: Queue,
+    @Inject(COLD_STORAGE_QUEUE_PROVIDER) private readonly queue: Queue,
     private readonly config: ConfigService,
     private readonly shipment: NightlyShipmentService,
   ) {}
@@ -52,10 +52,12 @@ export class ColdStorageWorker implements OnModuleInit, OnApplicationShutdown {
       return;
     }
     this.worker = new Worker(
-      INGEST_QUEUE,
+      COLD_STORAGE_QUEUE,
       async (job: Job) => {
+        // The cold-storage queue only carries COLD_STORAGE_JOB, but keep the guard
+        // as a defensive no-op in case a stray job ever lands here.
         if (job.name !== COLD_STORAGE_JOB) {
-          return; // not ours (the ingest worker owns ingest-batch / flush-sweep).
+          return;
         }
         return this.dispatch();
       },

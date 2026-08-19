@@ -2,7 +2,13 @@ import { Global, Inject, Module, OnApplicationShutdown } from '@nestjs/common';
 import { Queue, type WorkerOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.constants';
-import { INGEST_QUEUE, INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION } from './queue.constants';
+import {
+  INGEST_QUEUE,
+  INGEST_QUEUE_PROVIDER,
+  INGEST_WORKER_CONNECTION,
+  COLD_STORAGE_QUEUE,
+  COLD_STORAGE_QUEUE_PROVIDER,
+} from './queue.constants';
 
 /**
  * Raw BullMQ wiring (FR-006). Exports:
@@ -30,6 +36,17 @@ import { INGEST_QUEUE, INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION } from '.
         }),
     },
     {
+      // Dedicated cold-storage queue — kept separate from the ingest queue so the
+      // cold-storage worker never races the ingest worker for ingest-batch /
+      // flush-sweep jobs (see COLD_STORAGE_QUEUE doc).
+      provide: COLD_STORAGE_QUEUE_PROVIDER,
+      inject: [REDIS_CLIENT],
+      useFactory: (connection: Redis): Queue =>
+        new Queue(COLD_STORAGE_QUEUE, {
+          connection,
+        }),
+    },
+    {
       provide: INGEST_WORKER_CONNECTION,
       inject: [REDIS_CLIENT],
       useFactory: (connection: Redis): WorkerOptions => ({
@@ -37,12 +54,16 @@ import { INGEST_QUEUE, INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION } from '.
       }),
     },
   ],
-  exports: [INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION],
+  exports: [INGEST_QUEUE_PROVIDER, COLD_STORAGE_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION],
 })
 export class QueueModule implements OnApplicationShutdown {
-  constructor(@Inject(INGEST_QUEUE_PROVIDER) private readonly ingestQueue: Queue) {}
+  constructor(
+    @Inject(INGEST_QUEUE_PROVIDER) private readonly ingestQueue: Queue,
+    @Inject(COLD_STORAGE_QUEUE_PROVIDER) private readonly coldStorageQueue: Queue,
+  ) {}
 
   async onApplicationShutdown(): Promise<void> {
     await this.ingestQueue.close();
+    await this.coldStorageQueue.close();
   }
 }

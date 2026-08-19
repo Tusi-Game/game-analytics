@@ -6,7 +6,7 @@ import { DatabaseModule } from './database/database.module';
 import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
 import { REDIS_CLIENT } from './redis/redis.constants';
-import { INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION } from './queue/queue.constants';
+import { INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION, COLD_STORAGE_QUEUE_PROVIDER } from './queue/queue.constants';
 
 /**
  * Inert stand-ins for the infrastructure modules so the DI graph can be compiled
@@ -34,9 +34,10 @@ class FakeRedisModule {}
 @Module({
   providers: [
     { provide: INGEST_QUEUE_PROVIDER, useValue: { close: jest.fn(), add: jest.fn() } },
+    { provide: COLD_STORAGE_QUEUE_PROVIDER, useValue: { close: jest.fn(), add: jest.fn() } },
     { provide: INGEST_WORKER_CONNECTION, useValue: { connection: { quit: jest.fn(), on: jest.fn() } } },
   ],
-  exports: [INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION],
+  exports: [INGEST_QUEUE_PROVIDER, COLD_STORAGE_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION],
 })
 class FakeQueueModule {}
 
