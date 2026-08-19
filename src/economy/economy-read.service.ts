@@ -324,10 +324,10 @@ export class EconomyReadService {
       `SELECT utc_day::text AS utc_day,
               SUM(CASE WHEN flow_type = 'source' THEN amount_sum ELSE -amount_sum END)::text AS net
          FROM economy_flow_result
-        WHERE game_id = $1 AND currency = $2 AND utc_day <= $4
+        WHERE game_id = $1 AND currency = $2 AND utc_day <= $3
         GROUP BY utc_day
         ORDER BY utc_day ASC`,
-      [gameId, currency, from, to],
+      [gameId, currency, to],
     );
     const netByDay = new Map(flowRows.map((r) => [r.utc_day, Number(r.net)]));
     // Cumulative up to each day (inclusive).

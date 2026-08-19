@@ -998,4 +998,50 @@ describe('economy conformance (004) — live stack', () => {
     expect(sealed.totalSource).toBe(60);
     expect(sealed.provisional).toBe(false);
   });
+
+  it('supplyTrend returns measured supply + cumulative net-flow overlay (no unused-param throw)', async () => {
+    if (!redis || !ds) return;
+    const h = buildHarness(redis, ds, 0);
+    dirs.push(h.dir);
+    const game = uid('g-supt');
+    // Seed the two tables supplyTrend reads directly (sealed days; no live merge).
+    const supplyRows: Array<[string, number]> = [
+      ['2026-07-10', 1000],
+      ['2026-07-11', 1500],
+      ['2026-07-12', 1800],
+    ];
+    for (const [day, ms] of supplyRows) {
+      await ds.query(
+        `INSERT INTO economy_supply_day (game_id, currency, utc_day, money_supply, depth_percentiles, n_users, trusted_supply)
+         VALUES ($1,'gold',$2,$3,'{"p50":100,"p90":400}'::jsonb,5,$3)`,
+        [game, day, ms],
+      );
+    }
+    // net per day: 07-10 = 800-300 = 500; 07-11 = 600-400 = 200; 07-12 = 500-300 = 200.
+    const flowRows: Array<[string, string, 'source' | 'sink', number]> = [
+      ['2026-07-10', 'quest', 'source', 800],
+      ['2026-07-10', 'shop', 'sink', 300],
+      ['2026-07-11', 'quest', 'source', 600],
+      ['2026-07-11', 'shop', 'sink', 400],
+      ['2026-07-12', 'quest', 'source', 500],
+      ['2026-07-12', 'shop', 'sink', 300],
+    ];
+    for (const [day, reason, flow, amt] of flowRows) {
+      await ds.query(
+        `INSERT INTO economy_flow_result (game_id, currency, utc_day, provenance, reason, flow_type, amount_sum, event_count)
+         VALUES ($1,'gold',$2,'server',$3,$4,$5,10)`,
+        [game, day, reason, flow, amt],
+      );
+    }
+
+    // This THREW before the fix ("could not determine data type of parameter $3":
+    // the flow query passed `from` as $3 but only referenced $1/$2/$4).
+    const points = await h.read.supplyTrend(game, 'gold', '2026-07-10', '2026-07-12');
+
+    expect(points.map((p) => p.utcDay)).toEqual(['2026-07-10', '2026-07-11', '2026-07-12']);
+    expect(points.map((p) => p.moneySupply)).toEqual([1000, 1500, 1800]);
+    // Cumulative net flow up to each day: 500, 500+200, 700+200.
+    expect(points.map((p) => p.cumulativeNetFlow)).toEqual([500, 700, 900]);
+    expect(points.map((p) => p.divergence)).toEqual([500, 800, 900]);
+  });
 });
