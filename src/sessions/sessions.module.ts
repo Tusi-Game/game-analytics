@@ -1,4 +1,5 @@
-import { Module, type Provider } from '@nestjs/common';
+import { Module, type OnModuleInit, type Provider } from '@nestjs/common';
+import { StoryRegistry } from '../workers/kernel/story-registry';
 import { CommonModule } from '../common/common.module';
 import { DatabaseModule } from '../database/database.module';
 import { RedisModule } from '../redis/redis.module';
@@ -122,4 +123,28 @@ const SESSION_REGISTRATIONS: Provider[] = [
   ],
   exports: [SessionConfigService, SessionReadService, RetentionReadService, SpineRescanService, SpineRepository],
 })
-export class SessionsModule {}
+export class SessionsModule implements OnModuleInit {
+  constructor(
+    private readonly registry: StoryRegistry,
+    private readonly validator: SessionValidator,
+    private readonly durable: SessionDurableHook,
+    private readonly hot: SessionHotHook,
+  ) {}
+
+  /**
+   * Push the `session` triple + sess/act/ret flush plans into the global
+   * {@link StoryRegistry}. Runs AFTER WorkersModule init (this module imports it),
+   * so the dispatchers/flush — which read the registry lazily on first use — pick
+   * these up. The legacy KIND_*_REGISTRATION / EXTRA_DOMAIN_FLUSH_PLANS providers
+   * above stay (harmless) but no longer reach the WorkersModule-scoped consumers.
+   */
+  onModuleInit(): void {
+    this.registry.registerValidator({ kind: 'session', validator: this.validator });
+    this.registry.registerDurable({ kind: 'session', hook: this.durable });
+    this.registry.registerHot({ kind: 'session', hook: this.hot });
+    this.registry.registerFlushPlan({ domain: 'sess', plan: SESS_FLUSH_PLAN });
+    this.registry.registerFlushPlan({ domain: 'act', plan: ACT_FLUSH_PLAN });
+    this.registry.registerFlushPlan({ domain: 'ret', plan: RET_COHORT_FLUSH_PLAN });
+    this.registry.registerFlushPlan({ domain: 'ret', plan: RET_CELL_FLUSH_PLAN });
+  }
+}

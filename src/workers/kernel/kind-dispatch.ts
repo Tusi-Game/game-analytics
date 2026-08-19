@@ -61,6 +61,7 @@ import type {
   SealCheckedToken,
 } from './pipeline-steps';
 import { GenericHotUpdateHook, NoopDurableImmediateHook, PermissiveTypedValidator } from './default-hooks';
+import { StoryRegistry } from './story-registry';
 
 // ---------------------------------------------------------------------------
 // Registration record types + multi-provider DI tokens.
@@ -144,11 +145,14 @@ function buildRegistry<T>(
 export class KindDispatchValidator implements TypedValidator, OnModuleInit {
   private readonly registry = new Map<EventKind, TypedValidator>();
 
+  private sharedApplied = false;
+
   constructor(
     private readonly fallback: PermissiveTypedValidator,
     @Optional()
     @Inject(KIND_VALIDATOR_REGISTRATION)
     private readonly registrations: readonly KindValidatorRegistration[] = [],
+    @Optional() private readonly shared?: StoryRegistry,
   ) {}
 
   onModuleInit(): void {
@@ -158,9 +162,30 @@ export class KindDispatchValidator implements TypedValidator, OnModuleInit {
     }
   }
 
+  /** Fold the global {@link StoryRegistry} contributions in on first use (lazy so
+   * the story modules — which init AFTER WorkersModule — have already registered). */
+  private ensureShared(): void {
+    if (this.sharedApplied || !this.shared) {
+      return;
+    }
+    this.sharedApplied = true;
+    for (const reg of this.shared.validators) {
+      if (!this.registry.has(reg.kind)) {
+        this.registry.set(reg.kind, reg.validator);
+      }
+    }
+  }
+
   validate(kind: EventKind, envelope: EventEnvelope): 'quarantined_typed' | null {
+    this.ensureShared();
     const impl = this.registry.get(kind) ?? this.fallback;
     return impl.validate(kind, envelope);
+  }
+
+  /** Observability/wiring check: the kinds this dispatcher will delegate. */
+  registeredKinds(): EventKind[] {
+    this.ensureShared();
+    return [...this.registry.keys()];
   }
 }
 
@@ -183,11 +208,14 @@ export class KindDispatchValidator implements TypedValidator, OnModuleInit {
 export class KindDispatchDurableHook implements DurableImmediateHook, OnModuleInit {
   private readonly registry = new Map<EventKind, DurableImmediateHook>();
 
+  private sharedApplied = false;
+
   constructor(
     private readonly fallback: NoopDurableImmediateHook,
     @Optional()
     @Inject(KIND_DURABLE_REGISTRATION)
     private readonly registrations: readonly KindDurableRegistration[] = [],
+    @Optional() private readonly shared?: StoryRegistry,
   ) {}
 
   onModuleInit(): void {
@@ -197,10 +225,30 @@ export class KindDispatchDurableHook implements DurableImmediateHook, OnModuleIn
     }
   }
 
+  /** Fold the global {@link StoryRegistry} contributions in on first use (lazy). */
+  private ensureShared(): void {
+    if (this.sharedApplied || !this.shared) {
+      return;
+    }
+    this.sharedApplied = true;
+    for (const reg of this.shared.durables) {
+      if (!this.registry.has(reg.kind)) {
+        this.registry.set(reg.kind, reg.hook);
+      }
+    }
+  }
+
   async write(record: RoutedRecord, sealChecked: SealCheckedToken): Promise<DurableWrittenToken> {
+    this.ensureShared();
     const impl = this.registry.get(record.resolved_kind) ?? this.fallback;
     // Return the delegate's token verbatim — the ordering brand must survive.
     return impl.write(record, sealChecked);
+  }
+
+  /** Observability/wiring check: the kinds this dispatcher will delegate. */
+  registeredKinds(): EventKind[] {
+    this.ensureShared();
+    return [...this.registry.keys()];
   }
 }
 
@@ -243,17 +291,33 @@ export class KindDispatchDurableHook implements DurableImmediateHook, OnModuleIn
 export class KindDispatchHotHook implements HotUpdateHook, OnModuleInit {
   private readonly registry = new Map<EventKind, HotUpdateHook>();
 
+  private sharedApplied = false;
+
   constructor(
     private readonly base: GenericHotUpdateHook,
     @Optional()
     @Inject(KIND_HOT_REGISTRATION)
     private readonly registrations: readonly KindHotRegistration[] = [],
+    @Optional() private readonly shared?: StoryRegistry,
   ) {}
 
   onModuleInit(): void {
     const built = buildRegistry('hot', this.registrations, (r) => (r as KindHotRegistration).hook);
     for (const [kind, impl] of built) {
       this.registry.set(kind, impl);
+    }
+  }
+
+  /** Fold the global {@link StoryRegistry} contributions in on first use (lazy). */
+  private ensureShared(): void {
+    if (this.sharedApplied || !this.shared) {
+      return;
+    }
+    this.sharedApplied = true;
+    for (const reg of this.shared.hots) {
+      if (!this.registry.has(reg.kind)) {
+        this.registry.set(reg.kind, reg.hook);
+      }
     }
   }
 
@@ -273,11 +337,18 @@ export class KindDispatchHotHook implements HotUpdateHook, OnModuleInit {
     // so the story hook is ordering-safe on its own terms and the durable ≺ hot
     // guarantee holds for the story body too. Its returned token is discarded:
     // the base token is the single step-8 ordering token threaded into ack.
+    this.ensureShared();
     const story = this.registry.get(record.resolved_kind);
     if (story) {
       await story.update(record, bucketName, dedup, durable);
     }
 
     return baseToken;
+  }
+
+  /** Observability/wiring check: the kinds with a registered story accumulator. */
+  registeredKinds(): EventKind[] {
+    this.ensureShared();
+    return [...this.registry.keys()];
   }
 }

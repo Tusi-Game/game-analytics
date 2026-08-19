@@ -1,4 +1,5 @@
-import { Module, type Provider } from '@nestjs/common';
+import { Module, type OnModuleInit, type Provider } from '@nestjs/common';
+import { StoryRegistry } from '../workers/kernel/story-registry';
 import { CommonModule } from '../common/common.module';
 import { DatabaseModule } from '../database/database.module';
 import { RedisModule } from '../redis/redis.module';
@@ -118,4 +119,22 @@ const ECONOMY_REGISTRATIONS: Provider[] = [
   ],
   exports: [EconomyReadService, EconomySupplySnapshotService, EconomyConfigService],
 })
-export class EconomyModule {}
+export class EconomyModule implements OnModuleInit {
+  constructor(
+    private readonly registry: StoryRegistry,
+    private readonly validator: EconomyTypedValidator,
+    private readonly durable: NoopDurableImmediateHook,
+    private readonly hot: EconomyHotUpdateHook,
+  ) {}
+
+  /** Push the `economy` triple + eco/bal flush plans into the global registry
+   * (see SessionsModule for why this bridges the cross-module DI scope). */
+  onModuleInit(): void {
+    this.registry.registerValidator({ kind: 'economy', validator: this.validator });
+    this.registry.registerDurable({ kind: 'economy', hook: this.durable });
+    this.registry.registerHot({ kind: 'economy', hook: this.hot });
+    this.registry.registerFlushPlan({ domain: 'eco', plan: ECO_BASE_FLUSH_PLAN });
+    this.registry.registerFlushPlan({ domain: 'eco', plan: ECO_SEGMENT_FLUSH_PLAN });
+    this.registry.registerFlushPlan({ domain: 'bal', plan: BAL_FLUSH_PLAN });
+  }
+}

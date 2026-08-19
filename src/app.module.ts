@@ -8,6 +8,7 @@ import { CommonModule } from './common/common.module';
 import { SecurityModule } from './security/security.module';
 import { IngestModule } from './ingest/ingest.module';
 import { WorkersModule } from './workers/workers.module';
+import { StoryRegistryModule } from './workers/kernel/story-registry';
 import { SessionsModule } from './sessions/sessions.module';
 import { EconomyModule } from './economy/economy.module';
 import { MonetizationModule } from './monetization/monetization.module';
@@ -31,6 +32,10 @@ import { HealthController } from './health/health.controller';
     QueueModule,
     CommonModule,
     SecurityModule,
+    // Global registry the story modules push their per-kind hooks + flush plans
+    // into and the WorkersModule dispatchers/flush read — bridges the cross-module
+    // multi-provider scope so session/economy/monetization accumulators actually run.
+    StoryRegistryModule,
     IngestModule,
     WorkersModule,
     // 003-sessions + 005-retention (combined) — registers the `session` kind's

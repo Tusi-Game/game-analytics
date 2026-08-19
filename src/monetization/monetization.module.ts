@@ -1,4 +1,5 @@
-import { Module, type Provider } from '@nestjs/common';
+import { Module, type OnModuleInit, type Provider } from '@nestjs/common';
+import { StoryRegistry } from '../workers/kernel/story-registry';
 import { CommonModule } from '../common/common.module';
 import { DatabaseModule } from '../database/database.module';
 import { RedisModule } from '../redis/redis.module';
@@ -129,4 +130,22 @@ const MONETIZATION_REGISTRATIONS: Provider[] = [
   ],
   exports: [MonetizationReadService, MonetizationConfigService, ReconciliationService, FxService],
 })
-export class MonetizationModule {}
+export class MonetizationModule implements OnModuleInit {
+  constructor(
+    private readonly registry: StoryRegistry,
+    private readonly validator: PurchaseValidator,
+    private readonly durable: PurchaseDurableHook,
+    private readonly hot: PurchaseHotHook,
+  ) {}
+
+  /** Push the `purchase` triple + payer/mon/rev flush plans into the global
+   * registry (see SessionsModule for why this bridges the cross-module DI scope). */
+  onModuleInit(): void {
+    this.registry.registerValidator({ kind: 'purchase', validator: this.validator });
+    this.registry.registerDurable({ kind: 'purchase', hook: this.durable });
+    this.registry.registerHot({ kind: 'purchase', hook: this.hot });
+    this.registry.registerFlushPlan({ domain: 'payer', plan: PAYER_MEMBERS_FLUSH_PLAN });
+    this.registry.registerClassNFlushPlan({ domain: 'mon', plan: MON_CELL_FLUSH_PLAN });
+    this.registry.registerClassNFlushPlan({ domain: 'rev', plan: REV_DAY_FLUSH_PLAN });
+  }
+}

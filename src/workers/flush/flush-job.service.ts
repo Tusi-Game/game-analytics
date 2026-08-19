@@ -35,6 +35,7 @@ import type { Domain } from '../../common/redis-keys/redis-keys';
 import { DirtyRegistry } from './dirty-registry';
 import { FlushService, type ClassNFlushPlan, type DomainFlushPlan, type FlushSweepResult } from './flush.service';
 import { CAT_FLUSH_PLAN, CNT_FLUSH_PLAN, EXC_FLUSH_PLAN, partitionCntBuckets } from './flush-plans';
+import { StoryRegistry } from '../kernel/story-registry';
 
 /**
  * One story-registered extra sweep step: drain `domain`, flush the drained keys
@@ -98,7 +99,26 @@ export class FlushJobService {
     @Optional()
     @Inject(EXTRA_CLASS_N_FLUSH_PLANS)
     private readonly extraNPlans: readonly ExtraClassNFlushPlan[] = [],
+    @Optional() private readonly shared?: StoryRegistry,
   ) {}
+
+  /**
+   * Effective plans = the (legacy) injected multi-provider arrays PLUS the global
+   * {@link StoryRegistry} contributions. In the assembled app the injected arrays
+   * are empty (cross-module scope) and the registry carries the real plans; the
+   * hand-wired unit specs pass the arrays directly and have no registry.
+   */
+  private effectivePlans(): readonly ExtraDomainFlushPlan[] {
+    return this.shared ? [...this.extraPlans, ...this.shared.flushPlans] : this.extraPlans;
+  }
+  private effectiveNPlans(): readonly ExtraClassNFlushPlan[] {
+    return this.shared ? [...this.extraNPlans, ...this.shared.classNFlushPlans] : this.extraNPlans;
+  }
+
+  /** Observability/wiring check: the domains this sweep will drain + flush. */
+  registeredDomains(): string[] {
+    return [...new Set([...this.effectivePlans(), ...this.effectiveNPlans()].map((p) => p.domain))];
+  }
 
   /**
    * One periodic sweep: drain `cnt` (day-count + exc) and `cat`, flush each under
@@ -138,11 +158,12 @@ export class FlushJobService {
    * Returns undefined when no story registered a class-N plan (keeps the 002 shape).
    */
   private async sweepClassNDomains(): Promise<Record<string, FlushSweepResult> | undefined> {
-    if (this.extraNPlans.length === 0) {
+    const nPlans = this.effectiveNPlans();
+    if (nPlans.length === 0) {
       return undefined;
     }
     const byDomain = new Map<Domain, ClassNFlushPlan[]>();
-    for (const { domain, plan } of this.extraNPlans) {
+    for (const { domain, plan } of nPlans) {
       const list = byDomain.get(domain);
       if (list) {
         list.push(plan);
@@ -168,12 +189,13 @@ export class FlushJobService {
    * 002 result shape is byte-for-byte unchanged).
    */
   private async sweepExtraDomains(): Promise<Record<string, FlushSweepResult> | undefined> {
-    if (this.extraPlans.length === 0) {
+    const plans = this.effectivePlans();
+    if (plans.length === 0) {
       return undefined;
     }
     // Group plans by domain so each domain is drained exactly once.
     const byDomain = new Map<Domain, DomainFlushPlan[]>();
-    for (const { domain, plan } of this.extraPlans) {
+    for (const { domain, plan } of plans) {
       const list = byDomain.get(domain);
       if (list) {
         list.push(plan);
