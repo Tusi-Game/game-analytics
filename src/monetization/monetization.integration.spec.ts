@@ -56,7 +56,7 @@ import { PurchaseDurableHook } from './purchase-durable.hook';
 import { PurchaseHotHook } from './purchase-hot.hook';
 import { PurchaseDedupGateService } from './purchase-dedup-gate.service';
 import { FxService } from './fx.service';
-import { MonetizationConfigService } from './monetization-config.service';
+import { MonetizationConfigService, periodOfDay } from './monetization-config.service';
 import { CardinalityGuardService } from './cardinality-guard.service';
 import { MonetizationFloorProvider } from './monetization-floor.provider';
 import { MonetizationReadService } from './monetization-read.service';
@@ -342,7 +342,7 @@ describe('monetization + derived-KPIs integration', () => {
     expect(Number(spine?.lifetimeSpendNormalized)).toBeCloseTo(5, 4); // added ONCE
     const period = await ds!
       .getRepository(PayerPeriodSpendEntity)
-      .findOne({ where: { gameId, period: '2026-07', userId: 'u1' } });
+      .findOne({ where: { gameId, period: periodOfDay(DAY), userId: 'u1' } });
     expect(Number(period?.spendNormalized)).toBeCloseTo(5, 4);
     rmSync(h.dir, { recursive: true, force: true });
   });
