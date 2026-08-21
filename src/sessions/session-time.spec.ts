@@ -79,6 +79,22 @@ describe('deriveTrustedSession — server-authoritative recompute', () => {
     expect(s.correctedStart).toBe(start + 5 * MIN); // both instants shifted by the skew
   });
 
+  it('preserves the measured span when a coherent client clock leads the server inside the dead band', () => {
+    // Client clock runs 50 s FAST. |skew| = 50 s < the 60 s dead-band, so no shift is
+    // applied. The SDK sends the terminal event as the session ends, so
+    // `client_sent_time === session_end_time`: the payload is internally COHERENT and
+    // the 50 s excess over server-now is pure clock offset, not a client claiming the
+    // future. Clamping each instant independently collapses the whole 20 s span to 0;
+    // only the interval's POSITION may be clamped, never its measured length.
+    const serverRecv = Date.parse('2026-08-20T12:00:00Z');
+    const clientSent = serverRecv + 50_000;
+    const end = clientSent;
+    const start = end - 20_000;
+    const s = deriveTrustedSession(start, end, clientSent, serverRecv, SESSION_TIME_DEFAULTS, 0);
+    expect(s.trustedDuration).toBe(20_000);
+    expect(s.trustedEnd).toBeLessThanOrEqual(serverRecv);
+  });
+
   it('future-clamps a session end dated after the server saw it', () => {
     const start = Date.parse('2026-07-16T09:00:00Z');
     // Dead-band skew (30 s < 60 s) → no shift; client claims the session ended at
