@@ -1,6 +1,6 @@
 {
   "name": "@tusi-game/analytics-sdk-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Node server analytics SDK — trusted verified-purchase + economy emission (spec 010-server-sdk). MIT.",
   "license": "MIT",
   "type": "module",

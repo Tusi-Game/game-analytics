@@ -1,6 +1,6 @@
 {
   "name": "@tusi-game/analytics-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Browser / game analytics client SDK — canonical event emission, offline queue, sessions (spec 009-client-sdk). MIT.",
   "license": "MIT",
   "type": "module",
