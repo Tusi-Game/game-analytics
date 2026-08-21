@@ -7,7 +7,11 @@ import { DatabaseModule } from '../src/database/database.module';
 import { RedisModule } from '../src/redis/redis.module';
 import { QueueModule } from '../src/queue/queue.module';
 import { REDIS_CLIENT } from '../src/redis/redis.constants';
-import { INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION } from '../src/queue/queue.constants';
+import {
+  INGEST_QUEUE_PROVIDER,
+  INGEST_WORKER_CONNECTION,
+  COLD_STORAGE_QUEUE_PROVIDER,
+} from '../src/queue/queue.constants';
 
 /**
  * Inert stand-ins for the infrastructure modules so the app can boot without a
@@ -31,9 +35,10 @@ class FakeRedisModule {}
 @Module({
   providers: [
     { provide: INGEST_QUEUE_PROVIDER, useValue: { close: jest.fn(), add: jest.fn() } },
+    { provide: COLD_STORAGE_QUEUE_PROVIDER, useValue: { close: jest.fn(), add: jest.fn() } },
     { provide: INGEST_WORKER_CONNECTION, useValue: { connection: { quit: jest.fn(), on: jest.fn() } } },
   ],
-  exports: [INGEST_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION],
+  exports: [INGEST_QUEUE_PROVIDER, COLD_STORAGE_QUEUE_PROVIDER, INGEST_WORKER_CONNECTION],
 })
 class FakeQueueModule {}
 
